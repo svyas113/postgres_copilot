@@ -176,3 +176,5 @@ cython_debug/
 # Custom additions
 memory
 passwords
+.env
+.venv
