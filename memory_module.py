@@ -14,10 +14,11 @@ BASE_MEMORY_DIR = os.path.join(os.getcwd(), "memory")
 FEEDBACK_DIR = os.path.join(BASE_MEMORY_DIR, "feedback")
 INSIGHTS_DIR = os.path.join(BASE_MEMORY_DIR, "insights")
 SCHEMA_DIR = os.path.join(BASE_MEMORY_DIR, "schema")
-CONVERSATION_HISTORY_DIR = os.path.join(BASE_MEMORY_DIR, "conversation_history") # Added for completeness
+CONVERSATION_HISTORY_DIR = os.path.join(BASE_MEMORY_DIR, "conversation_history")
+NL2SQL_DIR = os.path.join(BASE_MEMORY_DIR, "NL2SQL") # Added for NL2SQL storage
 
-# Path for the cumulative insights file
-SUMMARIZED_INSIGHTS_FILE_PATH = os.path.join(INSIGHTS_DIR, "summarized_insights.md")
+# Path for the cumulative insights file (Commented out as insights are now per-DB)
+# SUMMARIZED_INSIGHTS_FILE_PATH = os.path.join(INSIGHTS_DIR, "summarized_insights.md")
 
 def ensure_memory_directories():
     """Ensures all necessary memory subdirectories exist."""
@@ -26,11 +27,15 @@ def ensure_memory_directories():
     os.makedirs(INSIGHTS_DIR, exist_ok=True)
     os.makedirs(SCHEMA_DIR, exist_ok=True)
     os.makedirs(CONVERSATION_HISTORY_DIR, exist_ok=True)
-    print(f"Memory directories ensured: {BASE_MEMORY_DIR} and its subdirectories.")
+    os.makedirs(NL2SQL_DIR, exist_ok=True) # Ensure NL2SQL directory is created
+    print(f"Memory directories ensured: {BASE_MEMORY_DIR} and its subdirectories including NL2SQL.")
 
 # Call it once on module load to ensure directories are ready
 ensure_memory_directories()
 
+def get_insights_filepath(db_name_identifier: str) -> str:
+    """Helper function to construct the filepath for a DB's insights file."""
+    return os.path.join(INSIGHTS_DIR, f"{db_name_identifier}_summarized_insights.md")
 
 # --- Feedback Report Handling ---
 
@@ -140,11 +145,20 @@ def read_feedback_file(filepath: str) -> str:
         print(f"Error reading feedback file {filepath}: {e}")
         raise
 
-# --- Cumulative Insights Handling (summarized_insights.md) ---
+# --- Cumulative Insights Handling (now per-database) ---
 
-def _format_insights_to_markdown(insights_data: InsightsExtractionModel) -> str:
+def _format_insights_to_markdown(insights_data: InsightsExtractionModel, db_name_identifier: Optional[str] = None) -> str: # Added db_name_identifier for potential future use in formatting
     """Converts an InsightsExtractionModel object to a markdown string."""
-    md_lines = [insights_data.title, "", insights_data.introduction, ""]
+    # Title and intro can be generic or adapted if db_name_identifier is used
+    title = insights_data.title
+    if db_name_identifier and "{db_name}" in title:
+        title = title.replace("{db_name}", ' '.join(word.capitalize() for word in db_name_identifier.replace('_', ' ').split()))
+    
+    introduction = insights_data.introduction
+    if db_name_identifier and "{db_name}" in introduction:
+        introduction = introduction.replace("{db_name}", ' '.join(word.capitalize() for word in db_name_identifier.replace('_', ' ').split()))
+
+    md_lines = [title, "", introduction, ""]
 
     def add_section(title: str, items: List[str]):
         if items: # Only add section if there are items
@@ -202,59 +216,43 @@ def _format_insights_to_markdown(insights_data: InsightsExtractionModel) -> str:
                     md_lines.append(f"- {item}")
                 md_lines.append("")
         md_lines.append("")
-        
-    add_section("General SQL Best Practices", insights_data.general_sql_best_practices.practices)
     
     return "\n".join(md_lines)
 
-def save_or_update_insights(new_insights_data: InsightsExtractionModel, db_name_for_new_specific_insights: Optional[str] = None):
+def save_or_update_insights(new_insights_data: InsightsExtractionModel, db_name_identifier: str):
     """
-    Saves or updates the cumulative summarized_insights.md file.
-    It merges new insights from new_insights_data into the existing file's structure.
+    Saves or updates the insights file specific to the given db_name_identifier.
+    The merging logic (combining old and new insights) is expected to have happened
+    in the insights_module, resulting in `new_insights_data` being the complete model to save.
     """
     ensure_memory_directories()
-    existing_insights = None
-    if os.path.exists(SUMMARIZED_INSIGHTS_FILE_PATH):
-        try:
-            # This is tricky because we're reading MD and need to parse it back into Pydantic,
-            # or merge at the Pydantic object level before writing.
-            # For simplicity, the LLM in insights_module will be asked to produce a *complete*
-            # InsightsExtractionModel. This function will then just write it.
-            # If we want to merge, the LLM in insights_module needs the *old* insights content too.
-
-            # Let's assume insights_module provides a fully formed InsightsExtractionModel
-            # that already incorporates old + new.
-            pass # For now, this function will just write what it's given.
-                 # The merging logic will be in the insights_module (LLM assisted).
-        except Exception as e:
-            print(f"Warning: Could not parse existing insights file {SUMMARIZED_INSIGHTS_FILE_PATH}. Will overwrite if new data is provided. Error: {e}")
-            existing_insights = InsightsExtractionModel() # Start fresh
-    else:
-        existing_insights = InsightsExtractionModel() # Create a new one if file doesn't exist
+    insights_filepath = get_insights_filepath(db_name_identifier)
 
     # The `new_insights_data` IS the complete, merged model from insights_module.
-    final_insights_model_to_save = new_insights_data
-
-    markdown_content = _format_insights_to_markdown(final_insights_model_to_save)
+    # The _format_insights_to_markdown can optionally use db_name_identifier if title/intro are templates
+    markdown_content = _format_insights_to_markdown(new_insights_data, db_name_identifier)
     try:
-        with open(SUMMARIZED_INSIGHTS_FILE_PATH, "w", encoding="utf-8") as f:
+        with open(insights_filepath, "w", encoding="utf-8") as f:
             f.write(markdown_content)
-        print(f"Insights saved/updated at: {SUMMARIZED_INSIGHTS_FILE_PATH}")
+        print(f"Insights for '{db_name_identifier}' saved/updated at: {insights_filepath}")
     except Exception as e:
-        print(f"Error saving insights to {SUMMARIZED_INSIGHTS_FILE_PATH}: {e}")
+        print(f"Error saving insights for '{db_name_identifier}' to {insights_filepath}: {e}")
         raise
 
-def read_insights_file() -> Optional[str]:
-    """Reads the content of the summarized_insights.md file."""
+def read_insights_file(db_name_identifier: str) -> Optional[str]:
+    """Reads the content of the insights file for a specific database."""
     ensure_memory_directories() # Ensure insights dir exists
-    if not os.path.exists(SUMMARIZED_INSIGHTS_FILE_PATH):
+    insights_filepath = get_insights_filepath(db_name_identifier)
+    
+    if not os.path.exists(insights_filepath):
+        print(f"Insights file for '{db_name_identifier}' not found at: {insights_filepath}")
         return None
     try:
-        with open(SUMMARIZED_INSIGHTS_FILE_PATH, "r", encoding="utf-8") as f:
+        with open(insights_filepath, "r", encoding="utf-8") as f:
             content = f.read()
         return content
     except Exception as e:
-        print(f"Error reading insights file {SUMMARIZED_INSIGHTS_FILE_PATH}: {e}")
+        print(f"Error reading insights file for '{db_name_identifier}' from {insights_filepath}: {e}")
         return None # Return None on error to indicate it's not available
 
 # --- Schema and Sample Data Handling ---
@@ -296,6 +294,80 @@ def read_schema_data(db_name: str) -> Optional[Dict[str, Any]]:
         print(f"Error reading schema data from {filepath}: {e}")
         return None
 
+# --- NL2SQL Storage Handling ---
+
+def get_nl2sql_filepath(db_name_identifier: str) -> str:
+    """Helper function to construct the filepath for a DB's NL2SQL JSON file."""
+    return os.path.join(NL2SQL_DIR, f"{db_name_identifier}_nl2sql.json")
+
+def save_nl2sql_pair(db_name_identifier: str, natural_language_question: str, sql_query: str):
+    """
+    Saves a natural language question and its corresponding approved SQL query
+    to a JSON file named after the database.
+    Each entry is a dictionary {"nlq": question, "sql": query}.
+    The file will contain a list of these dictionaries.
+    """
+    ensure_memory_directories() # Ensure NL2SQL_DIR exists
+    filepath = get_nl2sql_filepath(db_name_identifier)
+    
+    new_entry = {"nlq": natural_language_question, "sql": sql_query}
+    
+    entries: List[Dict[str, str]] = []
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                entries = json.load(f)
+                if not isinstance(entries, list): # Ensure it's a list
+                    print(f"Warning: NL2SQL file {filepath} was not a list. Re-initializing.")
+                    entries = []
+        except json.JSONDecodeError:
+            print(f"Warning: NL2SQL file {filepath} is corrupted. Re-initializing.")
+            entries = []
+        except Exception as e:
+            print(f"Error reading existing NL2SQL file {filepath}: {e}. Re-initializing.")
+            entries = []
+            
+    # Check for duplicates before appending
+    is_duplicate = False
+    for entry in entries:
+        if entry.get("nlq") == natural_language_question and entry.get("sql") == sql_query:
+            is_duplicate = True
+            break
+            
+    if not is_duplicate:
+        entries.append(new_entry)
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(entries, f, indent=2)
+            print(f"NL2SQL pair saved for '{db_name_identifier}' to: {filepath}")
+        except Exception as e:
+            print(f"Error saving NL2SQL pair to {filepath}: {e}")
+            # Optionally re-raise or handle more gracefully
+    else:
+        print(f"NL2SQL pair for '{db_name_identifier}' is a duplicate, not saving: NLQ='{natural_language_question[:50]}...'")
+
+
+def read_nl2sql_data(db_name_identifier: str) -> Optional[List[Dict[str, str]]]:
+    """
+    Reads the NL2SQL JSON file for a given db_name_identifier.
+    Returns a list of dictionaries, or None if the file doesn't exist or an error occurs.
+    """
+    ensure_memory_directories()
+    filepath = get_nl2sql_filepath(db_name_identifier)
+    if not os.path.exists(filepath):
+        print(f"NL2SQL data file not found: {filepath}")
+        return None
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            print(f"Warning: NL2SQL file {filepath} content is not a list. Returning None.")
+            return None
+        return data
+    except Exception as e:
+        print(f"Error reading NL2SQL data from {filepath}: {e}")
+        return None
+
 if __name__ == '__main__':
     # Example Usage (for testing the module directly)
     print("Testing memory_module.py...")
@@ -328,29 +400,33 @@ if __name__ == '__main__':
         print(f"Error in feedback test: {e}")
 
     # Test Insights
+    test_db_id = "test_db_insights"
     sample_insights = InsightsExtractionModel(
-        introduction="This is a test insights document for test_db.",
+        title=f"Cumulative Insights for {test_db_id}",
+        introduction=f"This is a test insights document for {test_db_id}.",
         schema_understanding=SchemaUnderstandingInsights(
             table_structure_and_relationships=["Users and Orders are related by user_id."]
         )
     )
     sample_insights.add_insight("query_construction_best_practices.table_joins", "Always use explicit JOIN ON conditions.")
-    sample_insights.add_insight("specific_database_insights_map.test_db", "The 'test_db' has a special 'audit_log' table.", db_name_hint="test_db")
+    # specific_database_insights_map is within the model, so it's fine.
+    sample_insights.add_insight("specific_database_insights_map." + test_db_id, f"The '{test_db_id}' has a special 'audit_log' table.", db_name_hint=test_db_id)
     
     try:
-        save_or_update_insights(sample_insights) # This will create/overwrite
-        insights_content = read_insights_file()
+        save_or_update_insights(sample_insights, test_db_id) 
+        insights_content = read_insights_file(test_db_id)
         if insights_content:
-            print(f"Content of insights file ({SUMMARIZED_INSIGHTS_FILE_PATH}):\n{insights_content[:300]}...")
+            insights_file_path_test = get_insights_filepath(test_db_id)
+            print(f"Content of insights file ({insights_file_path_test}):\n{insights_content[:300]}...")
         
-        # Simulate adding more insights later (would typically come from LLM processing a new feedback)
+        # Simulate adding more insights later
         updated_insights = InsightsExtractionModel.model_validate_json(json.loads(sample_insights.model_dump_json())) # Deep copy
         updated_insights.add_insight("common_errors_and_corrections.logical_errors", "Forgetting date ranges is common.")
-        updated_insights.add_insight("specific_database_insights_map.test_db", "The 'audit_log' table is partitioned daily.", db_name_hint="test_db")
-        save_or_update_insights(updated_insights)
-        insights_content_updated = read_insights_file()
+        updated_insights.add_insight("specific_database_insights_map." + test_db_id, f"The 'audit_log' table in '{test_db_id}' is partitioned daily.", db_name_hint=test_db_id)
+        save_or_update_insights(updated_insights, test_db_id)
+        insights_content_updated = read_insights_file(test_db_id)
         if insights_content_updated:
-            print(f"Updated content of insights file:\n{insights_content_updated[:400]}...")
+            print(f"Updated content of '{test_db_id}' insights file:\n{insights_content_updated[:400]}...")
 
     except Exception as e:
         print(f"Error in insights test: {e}")
@@ -370,5 +446,20 @@ if __name__ == '__main__':
             print(f"Retrieved schema for test_db_schema: {retrieved_schema}")
     except Exception as e:
         print(f"Error in schema data test: {e}")
+
+    # Test NL2SQL Storage
+    test_db_nl2sql = "test_db_nl2sql"
+    try:
+        save_nl2sql_pair(test_db_nl2sql, "Show all users", "SELECT * FROM users;")
+        save_nl2sql_pair(test_db_nl2sql, "Count active products", "SELECT COUNT(*) FROM products WHERE active = TRUE;")
+        save_nl2sql_pair(test_db_nl2sql, "Show all users", "SELECT * FROM users;") # Test duplicate
+        
+        nl2sql_data = read_nl2sql_data(test_db_nl2sql)
+        if nl2sql_data:
+            print(f"Retrieved NL2SQL data for {test_db_nl2sql}: {nl2sql_data}")
+            assert len(nl2sql_data) == 2 # Check if duplicate was handled
+    except Exception as e:
+        print(f"Error in NL2SQL storage test: {e}")
+
 
     print("memory_module.py testing complete.")

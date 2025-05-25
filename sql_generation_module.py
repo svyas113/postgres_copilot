@@ -2,26 +2,27 @@ import json
 from typing import TYPE_CHECKING, Dict, Any, Optional
 
 from pydantic import ValidationError
-from pydantic_models import SQLGenerationResponse # Assuming SQLErrorFeedbackResponse is not used in this simplified version
+from pydantic_models import SQLGenerationResponse 
 
 if TYPE_CHECKING:
-    from postgres_copilot_chat import GeminiMcpClient # To avoid circular import
+    # postgres_copilot_chat now defines LiteLLMMcpClient
+    from postgres_copilot_chat import LiteLLMMcpClient 
 
 MAX_SQL_GEN_RETRIES = 4 # Number of retries for the LLM to fix its own JSON output or SQL errors (Total 5 attempts)
 MAX_SQL_EXECUTION_RETRIES = 5 # Number of retries for the LLM to fix SQL execution errors
 
 async def generate_sql_query(
-    client: 'GeminiMcpClient', 
+    client: 'LiteLLMMcpClient', 
     natural_language_question: str,
     schema_and_sample_data: Optional[Dict[str, Any]], # Combined DDL and sample data
     insights_markdown_content: Optional[str] # Content of summarized_insights.md
 ) -> Dict[str, Any]:
     """
-    Generates an SQL query based on a natural language question, schema data, and insights.
+    Generates an SQL query based on a natural language question, schema data, and insights using LiteLLM.
     Validates the LLM's response and executes the query for verification.
 
     Args:
-        client: The GeminiMcpClient instance.
+        client: The LiteLLMMcpClient instance.
         natural_language_question: The user's question.
         schema_and_sample_data: Dictionary containing schema (DDL-like) and sample data for tables.
         insights_markdown_content: String content of the cumulative insights markdown file.
@@ -29,10 +30,12 @@ async def generate_sql_query(
     Returns:
         A dictionary containing the SQL query, explanation, execution results, and user message.
     """
-    if not client.chat or not client.session:
+    # For LiteLLM, client.session is the primary check for MCP connection.
+    # The LLM interaction is handled by methods within the client.
+    if not client.session:
         return {
             "sql_query": None, "explanation": None, "execution_result": None, "execution_error": None,
-            "message_to_user": "Error: LLM chat or MCP session not available for SQL generation."
+            "message_to_user": "Error: MCP session not available for SQL generation."
         }
 
     # Prepare context strings for the prompt
@@ -62,36 +65,52 @@ async def generate_sql_query(
         f"Ensure the SQL query strictly starts with 'SELECT'."
     )
 
-    llm_response_text = ""
+    llm_response_text = "" # Will store the final text part of LLM response
     parsed_response: Optional[SQLGenerationResponse] = None
-    last_error_feedback_to_llm = ""
+    last_error_feedback_to_llm = "" # This will be a user-role message for LiteLLM
 
-    for attempt in range(MAX_SQL_GEN_RETRIES + 1): # Initial attempt + retries
-        print(f"Attempting SQL generation (Attempt {attempt + 1}/{MAX_SQL_GEN_RETRIES + 1})...")
-        if attempt > 0 and last_error_feedback_to_llm: # Modify prompt for retries based on specific errors
-             current_prompt = (
-                f"{last_error_feedback_to_llm}\n\n"
+    # Initial messages list for LiteLLM
+    # System prompt is already part of client.conversation_history if provided
+    messages_for_llm = client.conversation_history[:] 
+
+    for attempt in range(MAX_SQL_GEN_RETRIES + 1): 
+        # print(f"Attempting SQL generation (Attempt {attempt + 1}/{MAX_SQL_GEN_RETRIES + 1})...") # Internal Detail
+        
+        user_message_content = ""
+        if attempt > 0 and last_error_feedback_to_llm: # This implies a retry
+            user_message_content = (
+                f"{last_error_feedback_to_llm}\n\n" # last_error_feedback_to_llm is the *previous* error message from assistant
+                f"Based on the previous error, please try again.\n"
                 f"DATABASE SCHEMA AND SAMPLE DATA:\n```json\n{schema_context_str}\n```\n\n"
                 f"CUMULATIVE INSIGHTS:\n```markdown\n{insights_context_str}\n```\n\n"
                 f"ORIGINAL NATURAL LANGUAGE QUESTION: \"{natural_language_question}\"\n\n"
-                f"Please try again. Respond ONLY with a single JSON object matching the structure: "
+                f"Respond ONLY with a single JSON object matching the structure: "
                 f"{{ \"sql_query\": \"<Your SELECT SQL query>\", \"explanation\": \"<Your explanation>\" }}\n"
                 f"Ensure the SQL query strictly starts with 'SELECT'."
             )
+        else: # First attempt
+            user_message_content = current_prompt # current_prompt is the initial full prompt
+
+        # Add the current user prompt to messages for this specific call
+        # We use a temporary list for the call to avoid polluting main history with retries until success
+        current_call_messages = messages_for_llm + [{"role": "user", "content": user_message_content}]
 
         try:
-            response = await client.chat.send_message_async(current_prompt)
+            # We expect a JSON response, so no tools are passed for this specific call.
+            llm_response_obj = await client._send_message_to_llm(current_call_messages) 
+            # _send_message_to_llm adds the user prompt to client.conversation_history
+            # _process_llm_response will add the assistant's response
             
-            current_llm_response_text = ""
-            if response.parts:
-                for part_item in response.parts: # Renamed to avoid conflict
-                    if hasattr(part_item, 'text') and part_item.text:
-                        current_llm_response_text += part_item.text
-            else:
-                current_llm_response_text = str(response)
-            
-            llm_response_text = current_llm_response_text
-            print(f"LLM raw response for SQL gen (Attempt {attempt + 1}): {llm_response_text}")
+            # _process_llm_response returns (text_content, tool_calls_made)
+            # For this call, we expect tool_calls_made to be False.
+            llm_response_text, tool_calls_made = await client._process_llm_response(llm_response_obj)
+
+            if tool_calls_made:
+                last_error_feedback_to_llm = "Your response included an unexpected tool call. Please provide the JSON response directly."
+                if attempt < MAX_SQL_GEN_RETRIES: continue
+                else: raise Exception("LLM attempted tool call instead of providing JSON for SQL generation.")
+
+            # print(f"LLM processed response for SQL gen (Attempt {attempt + 1}): {llm_response_text}") # Internal Detail
 
             cleaned_llm_response_text = llm_response_text.strip()
             if cleaned_llm_response_text.startswith("```json"):
@@ -100,13 +119,18 @@ async def generate_sql_query(
                 cleaned_llm_response_text = cleaned_llm_response_text[:-3]
             cleaned_llm_response_text = cleaned_llm_response_text.strip()
 
+            if not cleaned_llm_response_text: # Handle empty response after stripping
+                last_error_feedback_to_llm = "Your response was empty. Please provide the JSON output."
+                if attempt < MAX_SQL_GEN_RETRIES: continue
+                else: raise Exception("LLM provided an empty response for SQL generation.")
+
             parsed_response = SQLGenerationResponse.model_validate_json(cleaned_llm_response_text)
             
             if not parsed_response.sql_query:
-                error_detail = parsed_response.error_message or "LLM did not provide an SQL query."
+                error_detail = parsed_response.error_message or "LLM did not provide an SQL query in the 'sql_query' field."
                 last_error_feedback_to_llm = (
-                    f"Your previous attempt did not produce an SQL query. LLM message: '{error_detail}'. "
-                    f"Ensure 'sql_query' field is populated."
+                    f"Your previous attempt did not produce an SQL query in the 'sql_query' field. LLM message: '{error_detail}'. "
+                    f"Ensure 'sql_query' field is populated with a valid SQL string."
                 )
                 if attempt < MAX_SQL_GEN_RETRIES: continue
                 else: raise Exception(f"LLM failed to provide SQL query after retries. Last message: {error_detail}")
@@ -114,30 +138,30 @@ async def generate_sql_query(
             if not parsed_response.sql_query.strip().upper().startswith("SELECT"):
                 last_error_feedback_to_llm = (
                     f"Your generated SQL query was: ```sql\n{parsed_response.sql_query}\n```\n"
-                    f"This query does not start with SELECT, which is a requirement. Please regenerate."
+                    f"This query does not start with SELECT, which is a requirement. Please regenerate a valid SELECT query."
                 )
                 if attempt < MAX_SQL_GEN_RETRIES:
                     parsed_response = None # Invalidate this response
                     continue
                 else: raise Exception("LLM failed to generate a SELECT query after retries.")
             
-            print("SQL Generation successful and format validated.")
-            break # Exit loop on successful parse and basic validation
+            # print("SQL Generation successful and format validated.") # Internal Detail
+            break 
 
         except (ValidationError, json.JSONDecodeError) as e:
-            print(f"LLM response validation error for SQL (Attempt {attempt + 1}): {e}")
+            # print(f"LLM response validation error for SQL (Attempt {attempt + 1}): {e}") # Keep for debugging if necessary
             last_error_feedback_to_llm = (
                 f"Your previous response was not in the correct JSON format or had validation issues. Error: {e}\n"
-                f"Original incorrect response snippet: {llm_response_text[:200]}"
+                f"The problematic response snippet was: {llm_response_text[:200]}" 
             )
             if attempt == MAX_SQL_GEN_RETRIES:
                 return {
                     "sql_query": None, "explanation": None, "execution_result": None, "execution_error": None,
-                    "message_to_user": f"Failed to get a valid SQL response from LLM. Last error: {e}. Last LLM response: {llm_response_text}"
+                    "message_to_user": f"Failed to get a valid SQL response from LLM after multiple attempts. Last error: {e}. Last LLM response: {llm_response_text}"
                 }
-        except Exception as e: # Catch other errors, including those raised for no SQL or non-SELECT
-            print(f"Error during SQL generation attempt {attempt + 1}: {e}")
-            last_error_feedback_to_llm = f"An error occurred: {e}. Please try again."
+        except Exception as e: 
+            # print(f"Error during SQL generation attempt {attempt + 1}: {e}") # Keep for debugging
+            last_error_feedback_to_llm = f"An unexpected error occurred: {e}. Please try to generate the JSON response again."
             if attempt == MAX_SQL_GEN_RETRIES:
                 return {
                     "sql_query": None, "explanation": None, "execution_result": None, "execution_error": None,
@@ -160,8 +184,8 @@ async def generate_sql_query(
     original_sql = sql_to_execute
     original_explanation = explanation
     
-    for exec_attempt in range(MAX_SQL_EXECUTION_RETRIES + 1):  # Initial attempt + retries
-        print(f"Executing SQL (Attempt {exec_attempt + 1}/{MAX_SQL_EXECUTION_RETRIES + 1}): {sql_to_execute}")
+    for exec_attempt in range(MAX_SQL_EXECUTION_RETRIES + 1):  
+        # print(f"Executing SQL (Attempt {exec_attempt + 1}/{MAX_SQL_EXECUTION_RETRIES + 1}): {sql_to_execute}") # Internal
         
         try:
             exec_result_obj = await client.session.call_tool("execute_postgres_query", {"query": sql_to_execute})
@@ -169,80 +193,77 @@ async def generate_sql_query(
             
             if isinstance(raw_exec_output, str) and "Error:" in raw_exec_output:
                 execution_error = raw_exec_output
-                print(f"Execution Error (Attempt {exec_attempt + 1}): {execution_error}")
+                # print(f"Execution Error (Attempt {exec_attempt + 1}): {execution_error}") # User sees final error message
                 
-                # If we have more attempts, try to fix the SQL
                 if exec_attempt < MAX_SQL_EXECUTION_RETRIES:
-                    # Create a prompt for the LLM to fix the SQL
-                    fix_prompt = (
-                        f"You are an expert PostgreSQL SQL writer. You need to fix an SQL query that produced an error.\n\n"
+                    fix_user_message_content = (
+                        f"The previously generated SQL query resulted in an execution error.\n"
                         f"DATABASE SCHEMA AND SAMPLE DATA:\n```json\n{schema_context_str}\n```\n\n"
-                        f"NATURAL LANGUAGE QUESTION: \"{natural_language_question}\"\n\n"
-                        f"INCORRECT SQL QUERY:\n```sql\n{sql_to_execute}\n```\n\n"
-                        f"ERROR MESSAGE:\n{execution_error}\n\n"
-                        f"Please fix the SQL query and provide a brief explanation of what was wrong and how you fixed it.\n"
+                        f"ORIGINAL NATURAL LANGUAGE QUESTION: \"{natural_language_question}\"\n\n"
+                        f"SQL QUERY WITH ERROR:\n```sql\n{sql_to_execute}\n```\n\n"
+                        f"EXECUTION ERROR MESSAGE:\n{execution_error}\n\n"
+                        f"Please provide a corrected SQL query. For the explanation, describe how the *corrected* SQL query answers the original NATURAL LANGUAGE QUESTION. Do not mention the error, the incorrect query, or the process of fixing it in your explanation. Focus solely on explaining the logic of the corrected query in relation to the user's question.\n"
                         f"Respond ONLY with a single JSON object matching this structure: "
                         f"{{ \"sql_query\": \"<Your corrected SELECT SQL query>\", \"explanation\": \"<Your explanation>\" }}\n"
                         f"Ensure the SQL query strictly starts with 'SELECT'."
                     )
                     
+                    # Use a temporary message list for this fix attempt
+                    fix_call_messages = client.conversation_history + [{"role": "user", "content": fix_user_message_content}]
+                    
                     try:
-                        fix_response = await client.chat.send_message_async(fix_prompt)
-                        fix_text = "".join(part.text for part in fix_response.parts if hasattr(part, 'text') and part.text).strip()
-                        
-                        # Clean up the response
-                        if fix_text.startswith("```json"):
-                            fix_text = fix_text[7:]
-                        if fix_text.endswith("```"):
-                            fix_text = fix_text[:-3]
+                        fix_llm_response_obj = await client._send_message_to_llm(fix_call_messages)
+                        fix_text, fix_tool_calls_made = await client._process_llm_response(fix_llm_response_obj)
+
+                        if fix_tool_calls_made:
+                            # print("LLM attempted tool call during SQL fix. Continuing with next attempt...") # Debug
+                            continue
+
+                        if fix_text.startswith("```json"): fix_text = fix_text[7:]
+                        if fix_text.endswith("```"): fix_text = fix_text[:-3]
                         fix_text = fix_text.strip()
                         
-                        # Parse the fixed SQL
+                        if not fix_text:
+                            # print("LLM provided empty fix response. Continuing...") # Debug
+                            continue
+
                         fixed_response = SQLGenerationResponse.model_validate_json(fix_text)
                         
                         if fixed_response.sql_query and fixed_response.sql_query.strip().upper().startswith("SELECT"):
-                            # Update the SQL and explanation for the next attempt
                             sql_to_execute = fixed_response.sql_query
                             explanation = fixed_response.explanation
-                            execution_error = None  # Reset error for next attempt
-                            print(f"SQL fixed for next attempt: {sql_to_execute}")
-                            continue  # Try again with the fixed SQL
+                            execution_error = None 
+                            # print(f"SQL fixed by LLM for next attempt: {sql_to_execute}") # Debug
+                            continue 
                         else:
-                            print("LLM provided invalid SQL fix. Continuing with next attempt...")
+                            # print("LLM provided invalid SQL fix (not SELECT or missing query). Continuing...") # Debug
+                            pass # Fall through to continue with original SQL if fix is invalid
                     except Exception as fix_e:
-                        print(f"Error while trying to fix SQL (Attempt {exec_attempt + 1}): {fix_e}")
-                        # Continue to next attempt with same SQL
+                        # print(f"Error while trying to get SQL fix from LLM (Attempt {exec_attempt + 1}): {fix_e}") # Debug
+                        pass # Fall through to continue
             else:
-                # Success! No error
                 execution_result = raw_exec_output
                 execution_error = None
-                print(f"Execution Successful. Result type: {type(execution_result)}")
-                break  # Exit the retry loop on success
+                # print(f"Execution Successful. Result type: {type(execution_result)}") # User sees result preview
+                break 
                 
         except Exception as e:
-            print(f"Exception during execute_postgres_query tool call (Attempt {exec_attempt + 1}): {e}")
+            # print(f"Exception during execute_postgres_query tool call (Attempt {exec_attempt + 1}): {e}") # User sees final error
             execution_error = f"Exception while trying to execute generated SQL: {e}"
             
-            # Continue to next attempt if we have retries left
             if exec_attempt < MAX_SQL_EXECUTION_RETRIES:
                 continue
     
-    # If we've exhausted all attempts and still have an error, revert to the original SQL for display
     if execution_error and sql_to_execute != original_sql:
-        print("All SQL fix attempts failed. Reverting to original SQL for display.")
+        # print("All SQL fix attempts failed. Reverting to original SQL for display.") # Internal detail
         sql_to_execute = original_sql
         explanation = original_explanation
 
     user_message = f"Generated SQL:\n```sql\n{sql_to_execute}\n```\n\nExplanation:\n{explanation}\n\n"
-    # Execution results/errors are no longer appended to the user_message.
-    # They are still printed to the console during the execution loop above.
-    if execution_error:
-        # This error was already printed to console during the execution attempt.
-        # We just note it here for the return dict, but not for user_message.
-        print(f"SQL Execution Error (not shown to user): {execution_error}")
-    else:
-        # This result was already printed to console.
-        print(f"SQL Execution Successful (result not shown to user).")
+    
+    # The main chat loop will display the execution result or error to the user.
+    # This module just returns the necessary data.
+    # The print statements for execution success/error are handled in postgres_copilot_chat.py's feedback loop.
 
     user_message += "If this is correct, use '/approved'. If not, use '/feedback Your feedback text'."
 
