@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import datetime
 from typing import Optional, Dict, Any, List
@@ -28,7 +29,7 @@ def ensure_memory_directories():
     os.makedirs(SCHEMA_DIR, exist_ok=True)
     os.makedirs(CONVERSATION_HISTORY_DIR, exist_ok=True)
     os.makedirs(NL2SQL_DIR, exist_ok=True) # Ensure NL2SQL directory is created
-    print(f"Memory directories ensured: {BASE_MEMORY_DIR} and its subdirectories including NL2SQL.")
+    # Removed print statement about memory directories
 
 # Call it once on module load to ensure directories are ready
 ensure_memory_directories()
@@ -129,10 +130,10 @@ def save_feedback_markdown(report_content: FeedbackReportContentModel, db_name: 
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(markdown_str)
-        print(f"Feedback report saved to: {filepath}")
+        # Removed print statement about feedback report being saved
         return filepath
     except Exception as e:
-        print(f"Error saving feedback report to {filepath}: {e}")
+        print(f"Error saving feedback report to {filepath}: {e}", file=sys.stderr)
         raise # Re-raise the exception to be handled by the caller
 
 def read_feedback_file(filepath: str) -> str:
@@ -142,7 +143,7 @@ def read_feedback_file(filepath: str) -> str:
             content = f.read()
         return content
     except Exception as e:
-        print(f"Error reading feedback file {filepath}: {e}")
+        print(f"Error reading feedback file {filepath}: {e}", file=sys.stderr)
         raise
 
 # --- Cumulative Insights Handling (now per-database) ---
@@ -234,9 +235,9 @@ def save_or_update_insights(new_insights_data: InsightsExtractionModel, db_name_
     try:
         with open(insights_filepath, "w", encoding="utf-8") as f:
             f.write(markdown_content)
-        print(f"Insights for '{db_name_identifier}' saved/updated at: {insights_filepath}")
+        # Removed print statement about insights being saved
     except Exception as e:
-        print(f"Error saving insights for '{db_name_identifier}' to {insights_filepath}: {e}")
+        print(f"Error saving insights for '{db_name_identifier}' to {insights_filepath}: {e}", file=sys.stderr)
         raise
 
 def read_insights_file(db_name_identifier: str) -> Optional[str]:
@@ -245,14 +246,14 @@ def read_insights_file(db_name_identifier: str) -> Optional[str]:
     insights_filepath = get_insights_filepath(db_name_identifier)
     
     if not os.path.exists(insights_filepath):
-        print(f"Insights file for '{db_name_identifier}' not found at: {insights_filepath}")
+        print(f"Insights file for '{db_name_identifier}' not found at: {insights_filepath}", file=sys.stderr)
         return None
     try:
         with open(insights_filepath, "r", encoding="utf-8") as f:
             content = f.read()
         return content
     except Exception as e:
-        print(f"Error reading insights file for '{db_name_identifier}' from {insights_filepath}: {e}")
+        print(f"Error reading insights file for '{db_name_identifier}' from {insights_filepath}: {e}", file=sys.stderr)
         return None # Return None on error to indicate it's not available
 
 # --- Schema and Sample Data Handling ---
@@ -269,10 +270,10 @@ def save_schema_data(schema_data: Dict[str, Any], db_name: str) -> str:
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(schema_data, f, indent=2)
-        print(f"Schema and sample data saved to: {filepath}")
+        # Removed print statement about schema data being saved
         return filepath
     except Exception as e:
-        print(f"Error saving schema data to {filepath}: {e}")
+        print(f"Error saving schema data to {filepath}: {e}", file=sys.stderr)
         raise
 
 def read_schema_data(db_name: str) -> Optional[Dict[str, Any]]:
@@ -284,14 +285,14 @@ def read_schema_data(db_name: str) -> Optional[Dict[str, Any]]:
     filename = f"schema_sampledata_for_{db_name}.json"
     filepath = os.path.join(SCHEMA_DIR, filename)
     if not os.path.exists(filepath):
-        print(f"Schema data file not found: {filepath}")
+        print(f"Schema data file not found: {filepath}", file=sys.stderr)
         return None
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data
     except Exception as e:
-        print(f"Error reading schema data from {filepath}: {e}")
+        print(f"Error reading schema data from {filepath}: {e}", file=sys.stderr)
         return None
 
 # --- NL2SQL Storage Handling ---
@@ -339,12 +340,12 @@ def save_nl2sql_pair(db_name_identifier: str, natural_language_question: str, sq
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(entries, f, indent=2)
-            print(f"NL2SQL pair saved for '{db_name_identifier}' to: {filepath}")
+            # Removed print statement about NL2SQL pair being saved
         except Exception as e:
-            print(f"Error saving NL2SQL pair to {filepath}: {e}")
+            print(f"Error saving NL2SQL pair to {filepath}: {e}", file=sys.stderr)
             # Optionally re-raise or handle more gracefully
     else:
-        print(f"NL2SQL pair for '{db_name_identifier}' is a duplicate, not saving: NLQ='{natural_language_question[:50]}...'")
+        print(f"NL2SQL pair for '{db_name_identifier}' is a duplicate, not saving: NLQ='{natural_language_question[:50]}...'", file=sys.stderr)
 
 
 def read_nl2sql_data(db_name_identifier: str) -> Optional[List[Dict[str, str]]]:
@@ -355,17 +356,17 @@ def read_nl2sql_data(db_name_identifier: str) -> Optional[List[Dict[str, str]]]:
     ensure_memory_directories()
     filepath = get_nl2sql_filepath(db_name_identifier)
     if not os.path.exists(filepath):
-        print(f"NL2SQL data file not found: {filepath}")
+        print(f"NL2SQL data file not found: {filepath}", file=sys.stderr)
         return None
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, list):
-            print(f"Warning: NL2SQL file {filepath} content is not a list. Returning None.")
+            print(f"Warning: NL2SQL file {filepath} content is not a list. Returning None.", file=sys.stderr)
             return None
         return data
     except Exception as e:
-        print(f"Error reading NL2SQL data from {filepath}: {e}")
+        print(f"Error reading NL2SQL data from {filepath}: {e}", file=sys.stderr)
         return None
 
 if __name__ == '__main__':
