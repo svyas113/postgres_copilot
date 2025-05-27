@@ -1,41 +1,43 @@
-2025-05-27 17:23:29,430 - INFO - __main__ - PostgreSQL MCP Server script started.
-2025-05-27 17:23:29,430 - INFO - __main__ - Creating FastMCP instance for PostgreSQL server...
-2025-05-27 17:23:29,433 - DEBUG - mcp.server.lowlevel.server - Initializing server 'PostgreSQLServer'
-2025-05-27 17:23:29,433 - DEBUG - mcp.server.lowlevel.server - Registering handler for ListToolsRequest
-2025-05-27 17:23:29,434 - DEBUG - mcp.server.lowlevel.server - Registering handler for CallToolRequest
-2025-05-27 17:23:29,434 - DEBUG - mcp.server.lowlevel.server - Registering handler for ListResourcesRequest
-2025-05-27 17:23:29,434 - DEBUG - mcp.server.lowlevel.server - Registering handler for ReadResourceRequest
-2025-05-27 17:23:29,434 - DEBUG - mcp.server.lowlevel.server - Registering handler for PromptListRequest
-2025-05-27 17:23:29,434 - DEBUG - mcp.server.lowlevel.server - Registering handler for GetPromptRequest
-2025-05-27 17:23:29,434 - DEBUG - mcp.server.lowlevel.server - Registering handler for ListResourceTemplatesRequest
-2025-05-27 17:23:29,434 - INFO - __main__ - FastMCP instance created.
-2025-05-27 17:23:29,437 - INFO - __main__ - PostgreSQL MCP tools defined.
-2025-05-27 17:23:29,437 - INFO - __main__ - __main__ block started for PostgreSQL server.
-2025-05-27 17:23:29,437 - INFO - __main__ - Configuring stdout/stdin for win32.
-2025-05-27 17:23:29,437 - INFO - __main__ - stdout/stdin configured for win32.
-2025-05-27 17:23:29,437 - INFO - __main__ - Starting MCP PostgreSQL Server (stdio)...
-2025-05-27 17:23:29,447 - DEBUG - asyncio - Using proactor: IocpProactor
-2025-05-27 17:23:29,456 - DEBUG - mcp.server.lowlevel.server - Received message: root=InitializedNotification(method='notifications/initialized', params=None, jsonrpc='2.0')
-2025-05-27 17:23:29,456 - DEBUG - mcp.server.lowlevel.server - Received message: <mcp.shared.session.RequestResponder object at 0x0000014D7453C190>
-2025-05-27 17:23:29,457 - INFO - mcp.server.lowlevel.server - Processing request of type ListToolsRequest
-2025-05-27 17:23:29,457 - DEBUG - mcp.server.lowlevel.server - Dispatching request of type ListToolsRequest
-2025-05-27 17:23:29,457 - DEBUG - mcp.server.lowlevel.server - Response sent
-2025-05-27 17:23:46,297 - DEBUG - mcp.server.lowlevel.server - Received message: <mcp.shared.session.RequestResponder object at 0x0000014D7453CB90>
-2025-05-27 17:23:46,298 - INFO - mcp.server.lowlevel.server - Processing request of type CallToolRequest
-2025-05-27 17:23:46,298 - DEBUG - mcp.server.lowlevel.server - Dispatching request of type CallToolRequest
-2025-05-27 17:23:46,298 - DEBUG - __main__ - Tool 'connect_to_postgres' called with connection_string: postgresql://postgres:postgresql@localhost:5432/financial
-2025-05-27 17:23:46,373 - INFO - __main__ - Successfully connected to PostgreSQL database.
-2025-05-27 17:23:46,373 - DEBUG - mcp.server.lowlevel.server - Response sent
-2025-05-27 17:23:46,376 - DEBUG - mcp.server.lowlevel.server - Received message: <mcp.shared.session.RequestResponder object at 0x0000014D744FC9D0>
-2025-05-27 17:23:46,376 - INFO - mcp.server.lowlevel.server - Processing request of type CallToolRequest
-2025-05-27 17:23:46,376 - DEBUG - mcp.server.lowlevel.server - Dispatching request of type CallToolRequest
-2025-05-27 17:23:46,376 - DEBUG - __main__ - Tool 'get_schema_and_sample_data' called.
-2025-05-27 17:23:46,383 - DEBUG - __main__ - Found tables: ['account', 'card', 'client', 'disp', 'district', 'loan', 'order', 'trans']
-2025-05-27 17:23:46,427 - INFO - __main__ - Successfully fetched schema and sample data for 8 tables.
-2025-05-27 17:23:46,428 - DEBUG - mcp.server.lowlevel.server - Response sent
-2025-05-27 17:24:26,305 - DEBUG - mcp.server.lowlevel.server - Received message: <mcp.shared.session.RequestResponder object at 0x0000014D744FCFC0>
-2025-05-27 17:24:26,306 - INFO - mcp.server.lowlevel.server - Processing request of type CallToolRequest
-2025-05-27 17:24:26,306 - DEBUG - mcp.server.lowlevel.server - Dispatching request of type CallToolRequest
-2025-05-27 17:24:26,306 - DEBUG - __main__ - Tool 'execute_postgres_query' called with query: SELECT a.account_id FROM account a JOIN client c ON a.district_id = c.district_id JOIN district d ON...
-2025-05-27 17:24:26,314 - INFO - __main__ - Query executed successfully. Fetched 1 rows.
-2025-05-27 17:24:26,314 - DEBUG - mcp.server.lowlevel.server - Response sent
+2025-05-27 17:42:41,992 - INFO - __main__ - PostgreSQL MCP Server script started.
+2025-05-27 17:42:41,992 - INFO - __main__ - Creating FastMCP instance for PostgreSQL server...
+2025-05-27 17:42:41,994 - DEBUG - mcp.server.lowlevel.server - Initializing server 'PostgreSQLServer'
+2025-05-27 17:42:41,994 - DEBUG - mcp.server.lowlevel.server - Registering handler for ListToolsRequest
+2025-05-27 17:42:41,994 - DEBUG - mcp.server.lowlevel.server - Registering handler for CallToolRequest
+2025-05-27 17:42:41,994 - DEBUG - mcp.server.lowlevel.server - Registering handler for ListResourcesRequest
+2025-05-27 17:42:41,994 - DEBUG - mcp.server.lowlevel.server - Registering handler for ReadResourceRequest
+2025-05-27 17:42:41,994 - DEBUG - mcp.server.lowlevel.server - Registering handler for PromptListRequest
+2025-05-27 17:42:41,994 - DEBUG - mcp.server.lowlevel.server - Registering handler for GetPromptRequest
+2025-05-27 17:42:41,994 - DEBUG - mcp.server.lowlevel.server - Registering handler for ListResourceTemplatesRequest
+2025-05-27 17:42:41,994 - INFO - __main__ - FastMCP instance created.
+2025-05-27 17:42:41,996 - INFO - __main__ - PostgreSQL MCP tools defined.
+2025-05-27 17:42:41,996 - INFO - __main__ - __main__ block started for PostgreSQL server.
+2025-05-27 17:42:41,996 - INFO - __main__ - Configuring stdout/stdin for win32.
+2025-05-27 17:42:41,996 - INFO - __main__ - stdout/stdin configured for win32.
+2025-05-27 17:42:41,996 - INFO - __main__ - Starting MCP PostgreSQL Server (stdio)...
+2025-05-27 17:42:42,002 - DEBUG - asyncio - Using proactor: IocpProactor
+2025-05-27 17:42:42,008 - DEBUG - mcp.server.lowlevel.server - Received message: root=InitializedNotification(method='notifications/initialized', params=None, jsonrpc='2.0')
+2025-05-27 17:42:42,009 - DEBUG - mcp.server.lowlevel.server - Received message: <mcp.shared.session.RequestResponder object at 0x0000022C05ABC190>
+2025-05-27 17:42:42,009 - INFO - mcp.server.lowlevel.server - Processing request of type ListToolsRequest
+2025-05-27 17:42:42,009 - DEBUG - mcp.server.lowlevel.server - Dispatching request of type ListToolsRequest
+2025-05-27 17:42:42,010 - DEBUG - mcp.server.lowlevel.server - Response sent
+2025-05-27 17:42:49,255 - DEBUG - mcp.server.lowlevel.server - Received message: <mcp.shared.session.RequestResponder object at 0x0000022C05ABCB90>
+2025-05-27 17:42:49,255 - INFO - mcp.server.lowlevel.server - Processing request of type CallToolRequest
+2025-05-27 17:42:49,255 - DEBUG - mcp.server.lowlevel.server - Dispatching request of type CallToolRequest
+2025-05-27 17:42:49,255 - DEBUG - __main__ - Tool 'connect_to_postgres' called with connection_string: postgresql://postgres:postgresql@localhost:5432/financial
+2025-05-27 17:42:49,299 - INFO - __main__ - Successfully connected to PostgreSQL database.
+2025-05-27 17:42:49,300 - DEBUG - mcp.server.lowlevel.server - Response sent
+2025-05-27 17:42:49,302 - DEBUG - mcp.server.lowlevel.server - Received message: <mcp.shared.session.RequestResponder object at 0x0000022C05A7D480>
+2025-05-27 17:42:49,302 - INFO - mcp.server.lowlevel.server - Processing request of type CallToolRequest
+2025-05-27 17:42:49,302 - DEBUG - mcp.server.lowlevel.server - Dispatching request of type CallToolRequest
+2025-05-27 17:42:49,302 - DEBUG - __main__ - Tool 'get_schema_and_sample_data' called.
+2025-05-27 17:42:49,306 - DEBUG - __main__ - Found tables: ['account', 'card', 'client', 'disp', 'district', 'loan', 'order', 'trans']
+2025-05-27 17:42:49,333 - INFO - __main__ - Successfully fetched schema and sample data for 8 tables.
+2025-05-27 17:42:49,334 - DEBUG - mcp.server.lowlevel.server - Response sent
+2025-05-27 17:43:27,843 - DEBUG - mcp.server.lowlevel.server - Received message: <mcp.shared.session.RequestResponder object at 0x0000022C05A7C9D0>
+2025-05-27 17:43:27,844 - INFO - mcp.server.lowlevel.server - Processing request of type CallToolRequest
+2025-05-27 17:43:27,844 - DEBUG - mcp.server.lowlevel.server - Dispatching request of type CallToolRequest
+2025-05-27 17:43:27,844 - DEBUG - __main__ - Tool 'execute_postgres_query' called with query: SELECT DISTINCT T2.client_id
+FROM account AS T1
+INNER JOIN disp AS T2 ON T1.account_id = T2.account_...
+2025-05-27 17:43:27,847 - INFO - __main__ - Query executed successfully. Fetched 14 rows.
+2025-05-27 17:43:27,847 - DEBUG - mcp.server.lowlevel.server - Response sent
