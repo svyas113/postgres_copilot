@@ -37,7 +37,7 @@ def create_passwords_dir_and_env_file():
                 f.write("# LiteLLM will automatically use the relevant key based on the LITELLM_MODEL_ID.\n\n")
                 
                 f.write("# Google AI credentials (for Gemini models)\n")
-                f.write("GOOGLE_API_KEY=YOUR_GOOGLE_API_KEY_HERE\n\n")
+                f.write("GEMINI_API_KEY=YOUR_GOOGLE_API_KEY_HERE\n\n")
                 
                 f.write("# AWS Bedrock credentials (uncomment and fill to use Claude 3.7 Sonnet via Bedrock)\n")
                 f.write("# AWS_ACCESS_KEY_ID=your_access_key\n")
