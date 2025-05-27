@@ -178,3 +178,4 @@ memory
 passwords
 .env
 .venv
+postgres_copilot_architecture.md

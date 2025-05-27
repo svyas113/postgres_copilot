@@ -28,27 +28,43 @@ from pydantic_models import SQLGenerationResponse, FeedbackReportContentModel, F
 PASSWORDS_DIR = os.path.join(os.path.dirname(__file__), 'passwords')
 dotenv_path = os.path.join(PASSWORDS_DIR, '.env')
 
+def check_available_providers():
+    """Check which LLM providers have credentials available."""
+    providers = []
+    
+    # Check Google AI
+    if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+        providers.append("Google AI (Gemini)")
+    
+    # Check OpenAI
+    if os.getenv("OPENAI_API_KEY"):
+        providers.append("OpenAI")
+    
+    # Check AWS Bedrock
+    if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
+        providers.append("AWS Bedrock")
+    
+    # Check Anthropic (direct)
+    if os.getenv("ANTHROPIC_API_KEY"):
+        providers.append("Anthropic")
+    
+    return providers
+
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path=dotenv_path)
-    # Minimal check, actual key functionality tested by LiteLLM
-    if not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")):
-        print(f"Warning: No common API key (GEMINI_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY) found in {dotenv_path}. Ensure the correct key for your LiteLLM model is set.")
+    available_providers = check_available_providers()
+    
+    if not available_providers:
+        print(f"Warning: No API keys for common LLM providers found in {dotenv_path}.")
+        print("Please ensure the correct keys for your chosen LiteLLM model are set.")
+    else:
+        print(f"Available LLM providers: {', '.join(available_providers)}")
 else:
     print(f"Warning: .env file not found at {dotenv_path}. API keys for LiteLLM will likely be missing. Please run prerequisites.py if you haven't.", file=sys.stderr)
 
 # LiteLLM doesn't require a global configure call.
 # API keys are typically set as environment variables.
-# Example: export OPENAI_API_KEY="your_key" or set in .env
-
-# It's good practice to ensure at least one common key is present if we expect a specific provider.
-# However, LiteLLM is provider-agnostic, so we might not need a hard exit here
-# unless we are targeting a specific default model that requires a specific key.
-# For now, we'll rely on LiteLLM's auto-detection.
-# API_KEY = os.getenv("GOOGLE_API_KEY") # Or OPENAI_API_KEY, etc.
-# if not API_KEY:
-#     print("Error: Necessary API key (e.g., GOOGLE_API_KEY, OPENAI_API_KEY) not set or found.", file=sys.stderr)
-#     print(f"Please ensure your API key is set in {dotenv_path}", file=sys.stderr)
-#     sys.exit(1)
+# LiteLLM will automatically use the appropriate credentials based on the model ID prefix.
 
 class LiteLLMMcpClient:
     """A client that connects to an MCP server and uses LiteLLM for interaction."""
@@ -59,6 +75,22 @@ class LiteLLMMcpClient:
         
         # Read model ID from .env, with a fallback default
         self.model_name = os.getenv("LITELLM_MODEL_ID", "gemini/gemini-2.5-pro-preview-05-06")
+        
+        # Determine model provider based on model name prefix
+        self.model_provider = "Unknown"
+        if self.model_name.startswith("gemini/"):
+            self.model_provider = "Google AI (Gemini)"
+        elif self.model_name.startswith("gpt-") or self.model_name.startswith("openai/"):
+            self.model_provider = "OpenAI"
+        elif self.model_name.startswith("bedrock/"):
+            self.model_provider = "AWS Bedrock"
+            # Extract the actual model name from bedrock format
+            if "claude" in self.model_name.lower():
+                self.model_provider += " (Anthropic Claude)"
+        elif self.model_name.startswith("anthropic/") or self.model_name.startswith("claude"):
+            self.model_provider = "Anthropic"
+        elif self.model_name.startswith("ollama/"):
+            self.model_provider = "Ollama (Local)"
         
         self.system_instruction_content = system_instruction
         self.conversation_history: list[Dict[str, Any]] = []
@@ -200,19 +232,31 @@ class LiteLLMMcpClient:
             await self.cleanup()
             sys.exit(1)
 
-    async def _send_message_to_llm(self, messages: list, tools: Optional[list] = None, tool_choice: str = "auto") -> Any:
+    async def _send_message_to_llm(self, messages: list, tools: Optional[list] = None, tool_choice: str = "auto", 
+                                  response_format: Optional[dict] = None) -> Any:
         """Sends messages to LiteLLM and handles response, including tool calls."""
         try:
             # print(f"Sending to LiteLLM ({self.model_name}). Messages: {json.dumps(messages, indent=2)[:200]}...") # Debug, too verbose
             # if tools: # Debug
             #     print(f"Tools provided: {[tool['function']['name'] for tool in tools]}")
             
-            response = await acompletion(
-                model=self.model_name,
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice if tools else None # only if tools are present
-            )
+            # Prepare kwargs for acompletion
+            kwargs = {
+                "model": self.model_name,
+                "messages": messages,
+            }
+            
+            # Add tools if provided
+            if tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = tool_choice
+            
+            # Add response_format if provided (for JSON responses with OpenAI models)
+            if response_format and (self.model_name.startswith("gpt-") or self.model_name.startswith("openai/")):
+                kwargs["response_format"] = response_format
+            
+            response = await acompletion(**kwargs)
+            
             # Add user message to history (assistant response added after processing)
             # The last message in `messages` is the current user prompt
             if messages[-1]["role"] == "user":
@@ -220,12 +264,13 @@ class LiteLLMMcpClient:
 
             return response
         except Exception as e:
+            # Log error to stderr instead of displaying to user
             print(f"Error calling LiteLLM: {e}", file=sys.stderr)
             # Add user message to history even if call fails, to keep track
             if messages[-1]["role"] == "user" and messages[-1] not in self.conversation_history:
                  self.conversation_history.append(messages[-1])
             # Add a placeholder error message to history for the assistant
-            self.conversation_history.append({"role": "assistant", "content": f"Error communicating with LLM: {e}"})
+            self.conversation_history.append({"role": "assistant", "content": "I'm having trouble processing your request. Let me try again."})
             raise # Re-raise the exception to be handled by the caller
 
     async def _process_llm_response(self, llm_response: Any) -> Tuple[str, bool]:
@@ -445,7 +490,15 @@ class LiteLLMMcpClient:
                     # We can try adding "response_format": {"type": "json_object"} if using a compatible OpenAI model.
                     # For Gemini, the prompt needs to be very clear about JSON output.
                     
-                    llm_response_obj = await self._send_message_to_llm(messages_for_llm) # No tools for this specific JSON response
+                    # For OpenAI models, specify response_format for JSON output
+                    response_format = None
+                    if self.model_name.startswith("gpt-") or self.model_name.startswith("openai/"):
+                        response_format = {"type": "json_object"}
+                    
+                    llm_response_obj = await self._send_message_to_llm(
+                        messages=messages_for_llm,
+                        response_format=response_format
+                    ) # No tools for this specific JSON response
                     response_text, _ = await self._process_llm_response(llm_response_obj) # This will add to history
 
                     # response_text should be the JSON string
@@ -479,16 +532,17 @@ class LiteLLMMcpClient:
                     return user_msg
 
                 except (ValidationError, json.JSONDecodeError, ValueError) as e:
-                    print(f"Error processing LLM feedback response (Attempt {attempt+1}): {e}")
+                    # Log error to stderr instead of displaying to user
+                    print(f"Error processing LLM feedback response (Attempt {attempt+1}): {e}", file=sys.stderr)
                     if attempt == MAX_FEEDBACK_RETRIES:
-                        # Use the raw response_text from the LLM if available and parsing failed
-                        last_llm_resp_text_for_error = response_text if 'response_text' in locals() else "No response text captured."
-                        return f"Error processing feedback after multiple attempts: {e}. Last LLM response: {last_llm_resp_text_for_error}"
+                        # Provide a user-friendly error message
+                        return "I'm having trouble processing your feedback. Let me try a different approach. Could you provide your feedback again, perhaps with more specific details?"
                     feedback_prompt = f"Your previous response for updating the feedback report was invalid. Error: {e}. Please try again, ensuring the entire response is a single valid JSON object conforming to the FeedbackReportContentModel schema and SQL starts with SELECT."
                 except Exception as e_gen: # Catch-all for other unexpected errors
-                    print(f"Unexpected error during feedback processing (Attempt {attempt+1}): {e_gen}")
+                    # Log error to stderr instead of displaying to user
+                    print(f"Unexpected error during feedback processing (Attempt {attempt+1}): {e_gen}", file=sys.stderr)
                     if attempt == MAX_FEEDBACK_RETRIES:
-                        return f"Unexpected error processing feedback: {e_gen}."
+                        return "I encountered an issue while processing your feedback. Let's try a different approach. Could you rephrase your feedback or be more specific about what you'd like to change?"
                     # Generic retry for unexpected errors
                     feedback_prompt = "An unexpected error occurred. Please try to regenerate the updated feedback report JSON."
 
@@ -520,7 +574,7 @@ class LiteLLMMcpClient:
                     # print("Insights successfully generated/updated.") # User sees final message
                     self.cumulative_insights_content = memory_module.read_insights_file(self.current_db_name_identifier)
                 else:
-                    print("Warning: Failed to generate or update insights from this feedback.") # Keep this warning
+                    print("Warning: Failed to generate or update insights from this feedback.", file=sys.stderr) # Keep but redirect to stderr
                 
                 if self.current_natural_language_question and self.current_feedback_report_content.final_corrected_sql_query:
                     try:
@@ -531,13 +585,12 @@ class LiteLLMMcpClient:
                         )
                         # print("NLQ-SQL pair saved.") # User sees final message
                     except Exception as e_nl2sql:
-                        print(f"Warning: Failed to save NLQ-SQL pair: {e_nl2sql}") # Keep this warning
+                        print(f"Warning: Failed to save NLQ-SQL pair: {e_nl2sql}", file=sys.stderr) # Keep but redirect to stderr
                 else:
-                    print("Warning: Could not save NLQ-SQL pair due to missing NLQ or final SQL query in the report.") # Keep this
+                    print("Warning: Could not save NLQ-SQL pair due to missing NLQ or final SQL query in the report.", file=sys.stderr) # Keep but redirect to stderr
 
                 final_user_message = f"Approved. Feedback report, insights, and NLQ-SQL pair for '{self.current_db_name_identifier}' saved."
-                if not insights_success:
-                     final_user_message += " (Insights update may have failed, check logs)."
+                # Remove technical error message about insights update failure
                 
                 self._reset_feedback_cycle_state()
                 return f"{final_user_message}\nYou can start a new query with /generate_sql."
@@ -581,6 +634,7 @@ class LiteLLMMcpClient:
     async def chat_loop(self):
         print("\nPostgreSQL Co-Pilot Started!")
         print(f"Using LiteLLM with model: {self.model_name}")
+        print(f"Model provider: {self.model_provider}")
         
         is_first_run = self._check_and_set_first_run()
         if is_first_run:
@@ -612,7 +666,9 @@ class LiteLLMMcpClient:
                 print("\nAI: " + response_text)
 
             except EOFError: print("\nExiting chat loop."); break
-            except Exception as e: print(f"\nError in chat loop: {str(e)}")
+            except Exception as e: 
+                print(f"\nError in chat loop: {str(e)}", file=sys.stderr)
+                print("\nI encountered an issue. Let's try again.")
 
     async def cleanup(self):
         print("\nCleaning up client resources...")
@@ -676,6 +732,7 @@ async def main():
                     history_to_save = {
                         "db_name": client.current_db_name_identifier or "N/A",
                         "model_used": client.model_name,
+                        "model_provider": client.model_provider,
                         "history": client.conversation_history
                     }
                     json.dump(history_to_save, f, indent=2)
