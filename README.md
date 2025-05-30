@@ -17,32 +17,13 @@ PostgreSQL Co-Pilot is an intelligent assistant designed to help users interact 
 The project uses the following directory structure:
 
 ```
-db-copilot/
-├── memory/                     # Stores persistent data generated during operation
-│   ├── feedback/               # Detailed feedback reports (Markdown)
-│   │   └── feedback_<db_name>_<timestamp>.md
-│   ├── insights/               # Cumulative insights (summarized_insights.md)
-│   │   └── summarized_insights.md
-│   ├── schema/                 # Cached database schema and sample data (JSON)
-│   │   └── schema_sampledata_for_<db_name>.json
-│   └── conversation_history/   # Chat conversation logs (text)
-│       └── conversation_<timestamp>.txt
-├── .env                        # Environment variables (e.g., GOOGLE_API_KEY)
-├── .gitignore
-├── .python-version
-├── database_navigation_module.py
-├── initialization_module.py
-├── insights_module.py
-├── memory_module.py
-├── postgres_copilot_chat.py    # Main application entry point
-├── postgresql_server.py        # (Assumed) MCP server script
-├── pydantic_models.py
-├── pyproject.toml
-├── README.md
-├── sql_generation_module.py
-└── uv.lock
+memory/
+├── conversation_history/
+├── feedback/
+├── insights/
+└── NL2SQL/
 ```
-(Note: The `passwords/` directory might exist if created, but `postgres_copilot_chat.py` loads `GOOGLE_API_KEY` from `db-copilot/.env`)
+(Note: The `passwords/` directory exists and is created by `prerequisites.py`. Inside the `.env` file located in the `passwords/` directory, the user has to enter their model ID and credentials to use that particular model. We use litellm now, so you can use any model that is compatible with litellm, but for now it is locked for AWS Bedrock, Claude, OpenAI, Google Generative AI, and Azure Cloud.)
 
 ## Modules
 
@@ -106,6 +87,18 @@ db-copilot/
     *   **Important:** Ensure you replace `"YOUR_GOOGLE_API_KEY_HERE"` with your actual Google Gemini API key. The file `db-copilot/passwords/.env` is not used by `postgres_copilot_chat.py` for loading this specific key.
 4.  **Ensure PostgreSQL Server is Running:** The Co-Pilot connects to an existing PostgreSQL database.
 5.  **MCP Server:** Make sure the `postgresql_server.py` (or equivalent MCP server script for PostgreSQL interaction) is available and executable.
+
+To install and run the system:
+
+Clone the repo,
+
+If you have uv installed which is a python dependency manager you just have to run the uv sync command if you don't you have to install it and run uv sync (That will create a python virtual environment and install all the dependencies in there)
+
+Once done just run prerequisites.py that will install all the necessary folders to run the postgres_copilot_chat.py which is the main chat bot and once done
+
+Run python postgres_copilot_chat.py postgresql_server.py
+
+That will start the chat bot
 
 ## Usage
 
