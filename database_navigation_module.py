@@ -216,17 +216,40 @@ async def handle_navigation_query(
                                     f"The following schema details (and possibly sample data) were retrieved/accessed for {'table ' + target_table_name if target_table_name and schema_to_explain_final.get(target_table_name) else 'the database'}:\n"
                                     f"```json\n{schema_for_llm_str}\n```\n"
                                     f"Your task now is to use this information to provide a concise, natural language answer to the user's original question: \"{user_query}\".\n"
-                                    f"IMPORTANT: Do NOT simply repeat the JSON schema. Instead, extract the relevant information and explain it clearly. "
+                                    f"IMPORTANT: Your response should be **plain text only**. Do NOT output JSON. Do NOT use markdown code blocks like ```json. "
+                                    f"Extract the relevant information from the schema and explain it clearly. "
                                     f"For example, if the user asked about columns in a table, list the column names and perhaps their types. If they asked about what a table contains, describe its purpose based on its columns and sample data (if available).\n"
                                     f"Focus on being helpful and directly addressing the query. Avoid technical jargon where possible, or explain it if necessary. "
-                                    f"Do not mention the process of fetching/accessing data or this internal step. Just provide the answer."
+                                    f"Do not mention the process of fetching/accessing data or this internal step. Just provide the answer as a natural language paragraph or bullet points."
                         }
                     ]
                     
                     try:
                         explanation_response_obj = await client._send_message_to_llm(explanation_prompt_messages)
-                        final_answer, _ = await client._process_llm_response(explanation_response_obj)
-                        return f"{user_feedback_display}\n{final_answer}" 
+                        raw_explanation_text, _ = await client._process_llm_response(explanation_response_obj)
+
+                        final_natural_language_answer = raw_explanation_text # Default to raw text
+
+                        if raw_explanation_text: # Ensure it's not None or empty
+                            try:
+                                # Attempt to parse if it's JSON that might contain the actual explanation
+                                data = json.loads(raw_explanation_text)
+                                if isinstance(data, dict):
+                                    if "explanation_for_user" in data and isinstance(data["explanation_for_user"], str):
+                                        final_natural_language_answer = data["explanation_for_user"]
+                                    elif "answer" in data and isinstance(data["answer"], str):
+                                        final_natural_language_answer = data["answer"]
+                                    elif "content" in data and isinstance(data["content"], str): # Another common key for text
+                                        final_natural_language_answer = data["content"]
+                                    # If it's a dict but doesn't have these keys, final_natural_language_answer remains raw_explanation_text
+                            except (json.JSONDecodeError, TypeError):
+                                # Not JSON, or not a string initially, so final_natural_language_answer (raw_explanation_text) is used.
+                                pass
+                        
+                        if not final_natural_language_answer: # Fallback if everything resulted in None/empty
+                            final_natural_language_answer = "I found some schema information, but I'm having trouble explaining it in plain text right now."
+
+                        return f"{user_feedback_display}\n{final_natural_language_answer}"
                     except Exception as e_explain:
                         if isinstance(current_schema_data_to_use, dict):
                             summary_parts = [f"{user_feedback_display}\nI accessed the schema information but encountered an issue generating a full natural language explanation (Error: {e_explain}). Here's a summary of the retrieved data:"]
