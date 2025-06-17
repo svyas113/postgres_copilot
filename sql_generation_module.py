@@ -1,8 +1,12 @@
 import json
+import sys # For stderr
 from typing import TYPE_CHECKING, Dict, Any, Optional
 
 from pydantic import ValidationError
 from pydantic_models import SQLGenerationResponse 
+
+# Import for RAG
+import vector_store_module 
 
 if TYPE_CHECKING:
     # postgres_copilot_chat now defines LiteLLMMcpClient
@@ -32,11 +36,41 @@ async def generate_sql_query(
     """
     # For LiteLLM, client.session is the primary check for MCP connection.
     # The LLM interaction is handled by methods within the client.
-    if not client.session:
+    if not client.session or not client.current_db_name_identifier: # Added check for db_name_identifier
         return {
             "sql_query": None, "explanation": None, "execution_result": None, "execution_error": None,
-            "message_to_user": "Error: MCP session not available for SQL generation."
+            "message_to_user": "Error: MCP session or DB identifier not available for SQL generation."
         }
+
+    # --- RAG: Retrieve Few-Shot Examples ---
+    few_shot_examples_str = "No similar approved queries found to use as examples."
+    # Attempt to retrieve RAG examples, but proceed even if it fails.
+    try:
+        # Using the hardcoded threshold from vector_store_module directly
+        current_rag_threshold = vector_store_module.LITELLM_RAG_THRESHOLD
+
+        similar_pairs = vector_store_module.search_similar_nlqs(
+            db_name_identifier=client.current_db_name_identifier,
+            query_nlq=natural_language_question,
+            k=3, # Retrieve top 3 for few-shot prompting
+            threshold=current_rag_threshold
+        )
+        if similar_pairs:
+            examples_parts = ["Here are some examples of approved natural language questions and their corresponding SQL queries for this database:\n"]
+            for i, pair in enumerate(similar_pairs):
+                examples_parts.append(f"Example {i+1}:")
+                examples_parts.append(f"  Natural Language Question: \"{pair['nlq']}\"")
+                examples_parts.append(f"  SQL Query: ```sql\n{pair['sql']}\n```")
+            few_shot_examples_str = "\n".join(examples_parts)
+            print(f"Retrieved {len(similar_pairs)} few-shot examples for RAG.")
+        else:
+            print("No suitable few-shot examples found for RAG based on current query and threshold.")
+            
+    except AttributeError as e_attr:
+        print(f"Warning: Client might be missing RAG threshold attributes or vector_store_module not fully set up: {e_attr}. Proceeding without few-shot examples.", file=sys.stderr)
+    except Exception as e_rag:
+        print(f"Error during RAG few-shot example retrieval: {e_rag}. Proceeding without few-shot examples.", file=sys.stderr)
+    # --- End RAG ---
 
     # Prepare context strings for the prompt
     schema_context_str = "No schema or sample data provided."
@@ -59,6 +93,7 @@ async def generate_sql_query(
         f"(must start with SELECT) and a brief explanation.\n\n"
         f"DATABASE SCHEMA AND SAMPLE DATA:\n```json\n{schema_context_str}\n```\n\n"
         f"CUMULATIVE INSIGHTS FROM PREVIOUS QUERIES (Use these to improve your query):\n```markdown\n{insights_context_str}\n```\n\n"
+        f"FEW-SHOT EXAMPLES (Use these to guide your SQL generation if relevant):\n{few_shot_examples_str}\n\n"
         f"NATURAL LANGUAGE QUESTION: \"{natural_language_question}\"\n\n"
         f"Respond ONLY with a single JSON object matching this structure: "
         f"{{ \"sql_query\": \"<Your SELECT SQL query>\", \"explanation\": \"<Your explanation>\" }}\n"
@@ -83,6 +118,7 @@ async def generate_sql_query(
                 f"Based on the previous error, please try again.\n"
                 f"DATABASE SCHEMA AND SAMPLE DATA:\n```json\n{schema_context_str}\n```\n\n"
                 f"CUMULATIVE INSIGHTS:\n```markdown\n{insights_context_str}\n```\n\n"
+                f"FEW-SHOT EXAMPLES:\n{few_shot_examples_str}\n\n" # Added few-shot examples to retry prompt
                 f"ORIGINAL NATURAL LANGUAGE QUESTION: \"{natural_language_question}\"\n\n"
                 f"Respond ONLY with a single JSON object matching the structure: "
                 f"{{ \"sql_query\": \"<Your SELECT SQL query>\", \"explanation\": \"<Your explanation>\" }}\n"
@@ -265,12 +301,17 @@ async def generate_sql_query(
     # This module just returns the necessary data.
     # The print statements for execution success/error are handled in postgres_copilot_chat.py's feedback loop.
 
+    # The user message will be augmented in postgres_copilot_chat.py to include display_few_shot_examples
     user_message += "If this is correct, use '/approved'. If not, use '/feedback Your feedback text'."
-
+    
+    # Return the generated SQL and explanation.
+    # The few-shot examples used for RAG are not directly returned here,
+    # as the main chat loop will fetch them again for display using the display_threshold.
     return {
         "sql_query": sql_to_execute,
         "explanation": explanation,
         "execution_result": execution_result,
         "execution_error": execution_error,
         "message_to_user": user_message
+        # "rag_examples_used": similar_pairs # Optionally return this if needed for debugging or direct display
     }
