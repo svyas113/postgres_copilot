@@ -21,6 +21,9 @@ import sql_generation_module
 import insights_module
 import database_navigation_module
 import revise_query_module # Added
+import vector_store_module # Added for RAG
+from colorama import Fore, Style, init as colorama_init # Added for Colorama
+# Removed: from config.settings import app_config, vector_store_config
 from pydantic_models import ( # Updated imports
     SQLGenerationResponse, 
     FeedbackReportContentModel, 
@@ -99,8 +102,8 @@ class LiteLLMMcpClient:
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
         
-        # Read model ID from .env, with a fallback default
-        self.model_name = os.getenv("LITELLM_MODEL_ID", "gemini/gemini-2.5-pro-preview-05-06")
+        # Revert to LITELLM_MODEL_ID from os.getenv, as app_config is removed for this context
+        self.model_name = os.getenv("LITELLM_MODEL_ID", "gemini/gemini-1.5-pro-latest")
         
         # Determine model provider based on model name prefix
         self.model_provider = "Unknown"
@@ -122,6 +125,11 @@ class LiteLLMMcpClient:
         self.conversation_history: list[Dict[str, Any]] = []
         if self.system_instruction_content:
             self.conversation_history.append({"role": "system", "content": self.system_instruction_content})
+
+        # RAG and Display Thresholds are now hardcoded in vector_store_module.
+        # Removing client-level attributes for these.
+        # self.rag_similarity_threshold = vector_store_config.LITELLM_RAG_THRESHOLD (Removed)
+        # self.display_similarity_threshold = vector_store_config.LITELLM_DISPLAY_THRESHOLD (Removed)
         
         # Memory directories are ensured by memory_module on its import.
         # No need for verbose printing of these paths here.
@@ -159,7 +167,7 @@ class LiteLLMMcpClient:
                     f.write(datetime.datetime.now().isoformat())
                 return True # It was the first run
             except Exception as e:
-                print(f"Warning: Could not create first run flag at {flag_path}: {e}", file=sys.stderr)
+                print(f"{Fore.YELLOW}Warning: Could not create first run flag at {flag_path}: {e}{Style.RESET_ALL}", file=sys.stderr)
                 return False # Assume not first run if cannot create flag
         return False # Flag exists, not first run
 
@@ -238,7 +246,7 @@ class LiteLLMMcpClient:
             mcp_tools_list: list[McpTool] = response.tools
             # print(f"Connected to MCP server with {len(mcp_tools_list)} tools: {[tool.name for tool in mcp_tools_list]}") # Internal detail
             if not mcp_tools_list: 
-                print("Error: No tools discovered from the MCP server. Exiting.", file=sys.stderr)
+                print(f"{Fore.RED}Error: No tools discovered from the MCP server. Exiting.{Style.RESET_ALL}", file=sys.stderr)
                 sys.exit(1)
 
             self.litellm_tools = []
@@ -269,14 +277,14 @@ class LiteLLMMcpClient:
                         }
                     })
                 else:
-                    print(f"Warning: Skipping MCP tool '{tool_name}' due to missing attributes for LiteLLM conversion.", file=sys.stderr) # Keep this warning
+                    print(f"{Fore.YELLOW}Warning: Skipping MCP tool '{tool_name}' due to missing attributes for LiteLLM conversion.{Style.RESET_ALL}", file=sys.stderr) # Keep this warning
             
             if not self.litellm_tools and mcp_tools_list:
-                print("Error: No MCP tools could be converted to LiteLLM format. Exiting.", file=sys.stderr)
+                print(f"{Fore.RED}Error: No MCP tools could be converted to LiteLLM format. Exiting.{Style.RESET_ALL}", file=sys.stderr)
                 sys.exit(1)
             # print(f"LiteLLM client configured to use model '{self.model_name}' with {len(self.litellm_tools)} tools.") # Internal detail
         except Exception as e:
-            print(f"Fatal error during MCP server connection or LiteLLM setup: {e}. Please ensure the MCP server script is correct and executable.", file=sys.stderr)
+            print(f"{Fore.RED}Fatal error during MCP server connection or LiteLLM setup: {e}. Please ensure the MCP server script is correct and executable.{Style.RESET_ALL}", file=sys.stderr)
             await self.cleanup()
             sys.exit(1)
 
@@ -287,6 +295,7 @@ class LiteLLMMcpClient:
             # print(f"Sending to LiteLLM ({self.model_name}). Messages: {json.dumps(messages, indent=2)[:200]}...") # Debug, too verbose
             # if tools: # Debug
             #     print(f"Tools provided: {[tool['function']['name'] for tool in tools]}")
+            # print(f"{Fore.MAGENTA}DEBUG: Sending to LLM. Model: {self.model_name}{Style.RESET_ALL}") # Optional debug
             
             # Prepare kwargs for acompletion
             kwargs = {
@@ -313,7 +322,7 @@ class LiteLLMMcpClient:
             return response
         except Exception as e:
             # Log error to stderr instead of displaying to user
-            print(f"Error calling LiteLLM: {e}", file=sys.stderr)
+            print(f"{Fore.RED}Error calling LiteLLM: {e}{Style.RESET_ALL}", file=sys.stderr)
             # Add user message to history even if call fails, to keep track
             if messages[-1]["role"] == "user" and messages[-1] not in self.conversation_history:
                  self.conversation_history.append(messages[-1])
@@ -327,7 +336,7 @@ class LiteLLMMcpClient:
         tool_calls_made = False
 
         if not llm_response or not llm_response.choices or not llm_response.choices[0].message:
-            assistant_response_content = "Error: Empty or invalid response from LLM."
+            assistant_response_content = f"{Fore.RED}Error: Empty or invalid response from LLM.{Style.RESET_ALL}"
             self.conversation_history.append({"role": "assistant", "content": assistant_response_content})
             return assistant_response_content, tool_calls_made
 
@@ -494,8 +503,31 @@ class LiteLLMMcpClient:
                 # if the initial query had an execution error. For now, these are blank.
             else: # SQL generation failed at the first step
                  self.current_feedback_report_content = None # Ensure it's cleared
-
-            return sql_gen_result_dict.get("message_to_user", "Error: No message from SQL generation.")
+            
+            base_message_to_user = sql_gen_result_dict.get("message_to_user", "Error: No message from SQL generation.")
+            
+            # --- Augment message with display few-shot examples ---
+            if self.current_db_name_identifier and self.current_natural_language_question:
+                try:
+                    # Using hardcoded display threshold from vector_store_module
+                    display_threshold_from_module = vector_store_module.LITELLM_DISPLAY_THRESHOLD
+                    display_examples = vector_store_module.search_similar_nlqs(
+                        db_name_identifier=self.current_db_name_identifier,
+                        query_nlq=self.current_natural_language_question,
+                        k=3, # Show up to 3 examples
+                        threshold=display_threshold_from_module
+                    )
+                    if display_examples:
+                        display_message_parts = ["\n\n--- Relevant Approved Examples (Similarity >= " f"{display_threshold_from_module}" ") ---"]
+                        for i, ex in enumerate(display_examples):
+                            display_message_parts.append(f"Example {i+1} (Similarity: {ex['similarity_score']:.2f}):")
+                            display_message_parts.append(f"  Q: \"{ex['nlq']}\"")
+                            display_message_parts.append(f"  A: ```sql\n{ex['sql']}\n```")
+                        base_message_to_user += "\n" + "\n".join(display_message_parts)
+                except Exception as e_display_rag:
+                    print(f"Error retrieving/formatting display RAG examples: {e_display_rag}", file=sys.stderr)
+            # --- End Augment ---
+            return base_message_to_user
 
         # Command: /feedback: {user_feedback_text}
         feedback_match = re.match(r"/feedback:\s*(.+)", query, re.IGNORECASE)
@@ -942,26 +974,27 @@ class LiteLLMMcpClient:
         )
 
     async def chat_loop(self):
-        print("\nPostgreSQL Co-Pilot Started!")
-        print(f"Using LiteLLM with model: {self.model_name}")
-        print(f"Model provider: {self.model_provider}")
+        print(f"\n{Fore.MAGENTA}PostgreSQL Co-Pilot Started!{Style.RESET_ALL}")
+        print(f"{Fore.BLUE}Using LiteLLM with model: {Style.BRIGHT}{self.model_name}{Style.RESET_ALL}")
+        print(f"{Fore.BLUE}Model provider: {Style.BRIGHT}{self.model_provider}{Style.RESET_ALL}")
         
         is_first_run = self._check_and_set_first_run()
         if is_first_run:
-            print("\nWelcome! It looks like this is your first time running the Co-Pilot.")
-            print("Please ensure you have run 'python prerequisites.py' to set up necessary folders and get API key instructions.")
+            print(f"\n{Fore.YELLOW}Welcome! It looks like this is your first time running the Co-Pilot.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Please ensure you have run 'python prerequisites.py' to set up necessary folders and get API key instructions.{Style.RESET_ALL}")
             print(self._get_commands_help_text()) # Show full help on first run
         else:
             # On subsequent runs, just remind them about /list_commands
-            print("\nType '/list_commands' to see available commands.")
+            print(f"\n{Fore.CYAN}Type '/list_commands' to see available commands.{Style.RESET_ALL}")
         
-        print("\nType a PostgreSQL connection string (e.g., postgresql://user:pass@host:port/dbname) to begin,")
-        print("or use '/change_database: \"your_connection_string\"'. Type 'quit' to exit.")
+        print(f"\n{Fore.CYAN}Type a PostgreSQL connection string (e.g., postgresql://user:pass@host:port/dbname) to begin,{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}or use '/change_database: \"your_connection_string\"'. Type 'quit' to exit.{Style.RESET_ALL}")
 
         while True:
             try:
+                prompt_text = f"\n{Fore.GREEN}[{self.current_db_name_identifier or f'{Style.DIM}No DB{Style.NORMAL}'}] {Style.BRIGHT}Query:{Style.RESET_ALL} "
                 user_input_query = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: input(f"\n[{self.current_db_name_identifier or 'No DB'}] Query: ").strip()
+                    None, lambda: input(prompt_text).strip()
                 )
                 if user_input_query.lower() == 'quit':
                     await self._cleanup_database_session(full_cleanup=True)
@@ -973,12 +1006,12 @@ class LiteLLMMcpClient:
                 # Dispatch command will handle adding to history via _send_message_to_llm
 
                 response_text = await self.dispatch_command(user_input_query)
-                print("\nAI: " + response_text)
+                print(f"\n{Fore.CYAN}{Style.BRIGHT}AI:{Style.RESET_ALL} {response_text}")
 
-            except EOFError: print("\nExiting chat loop."); break
+            except EOFError: print(f"\n{Fore.RED}Exiting chat loop.{Style.RESET_ALL}"); break
             except Exception as e: 
-                print(f"\nError in chat loop: {str(e)}", file=sys.stderr)
-                print("\nI encountered an issue. Let's try again.")
+                print(f"\n{Fore.RED}Error in chat loop: {str(e)}{Style.RESET_ALL}", file=sys.stderr)
+                print(f"\n{Fore.YELLOW}I encountered an issue. Let's try again.{Style.RESET_ALL}")
 
     async def cleanup(self):
         print("\nCleaning up client resources...")
@@ -990,6 +1023,7 @@ async def main():
     # Set LiteLLM verbosity (optional)
     # litellm.set_verbose = True # or litellm.success_callback = [...] etc.
     # litellm.telemetry = False # Disable LiteLLM telemetry if desired
+    colorama_init(autoreset=True) # Initialize Colorama
 
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding='utf-8')
@@ -1047,10 +1081,18 @@ async def main():
     # Defaulting to a common Gemini model that LiteLLM supports.
     # Model name is now read from .env inside LiteLLMMcpClient constructor
     client = LiteLLMMcpClient(system_instruction=custom_system_prompt)
+
+    # The vector_store_module now uses its own hardcoded constants for thresholds.
+    # No explicit call to configure_thresholds is needed here anymore.
+    # Print a message indicating where these are now set.
+    print(f"Vector store thresholds are now set directly in vector_store_module.py:")
+    print(f"  RAG Threshold: {vector_store_module.LITELLM_RAG_THRESHOLD}")
+    print(f"  Display Threshold: {vector_store_module.LITELLM_DISPLAY_THRESHOLD}")
+    print(f"  Embedding Model: {vector_store_module.LITELLM_EMBEDDING_MODEL}")
     
     try:
         # memory_module.ensure_memory_directories() is called on its import.
-        print("PostgreSQL Co-Pilot Client (LiteLLM) starting...")
+        print(f"{Fore.BLUE}PostgreSQL Co-Pilot Client (LiteLLM) starting...{Style.RESET_ALL}")
         await client.connect_to_mcp_server(mcp_server_script) # Connect to the local postgresql_server.py
         
         # With LiteLLM, there's no explicit chat object to check like `client.chat`.
@@ -1061,7 +1103,7 @@ async def main():
         if client.conversation_history:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             history_file_path = os.path.join(memory_module.CONVERSATION_HISTORY_DIR, f"conversation_litellm_{timestamp}.json")
-            print(f"\nSaving conversation history to: {history_file_path}")
+            print(f"\n{Fore.CYAN}Saving conversation history to: {history_file_path}{Style.RESET_ALL}")
             try:
                 with open(history_file_path, "w", encoding="utf-8") as f:
                     # Save as JSON for better structure, especially with tool calls
@@ -1072,11 +1114,11 @@ async def main():
                         "history": client.conversation_history
                     }
                     json.dump(history_to_save, f, indent=2)
-                print("Conversation history saved.")
+                print(f"{Fore.GREEN}Conversation history saved.{Style.RESET_ALL}")
             except Exception as e_hist:
-                print(f"Error saving conversation history: {e_hist}")
+                print(f"{Fore.RED}Error saving conversation history: {e_hist}{Style.RESET_ALL}")
         else:
-            print("No conversation history to save.")
+            print(f"{Fore.YELLOW}No conversation history to save.{Style.RESET_ALL}")
 
     finally:
         await client.cleanup()

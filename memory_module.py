@@ -295,6 +295,8 @@ def read_schema_data(db_name: str) -> Optional[Dict[str, Any]]:
         print(f"Error reading schema data from {filepath}: {e}", file=sys.stderr)
         return None
 
+import vector_store_module # Added for RAG integration
+
 # --- NL2SQL Storage Handling ---
 
 def get_nl2sql_filepath(db_name_identifier: str) -> str:
@@ -341,11 +343,35 @@ def save_nl2sql_pair(db_name_identifier: str, natural_language_question: str, sq
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(entries, f, indent=2)
             # Removed print statement about NL2SQL pair being saved
+            
+            # --- Add to Vector Store ---
+            try:
+                print(f"Attempting to add NLQ-SQL pair to vector store for '{db_name_identifier}'...")
+                vector_store_module.add_nlq_sql_pair(
+                    db_name_identifier=db_name_identifier,
+                    nlq=natural_language_question,
+                    sql=sql_query
+                )
+                print(f"Successfully processed pair for vector store for '{db_name_identifier}'.")
+            except Exception as e_vec:
+                print(f"Error adding NLQ-SQL pair to vector store for '{db_name_identifier}': {e_vec}", file=sys.stderr)
+            # --- End Add to Vector Store ---
+
         except Exception as e:
             print(f"Error saving NL2SQL pair to {filepath}: {e}", file=sys.stderr)
             # Optionally re-raise or handle more gracefully
     else:
-        print(f"NL2SQL pair for '{db_name_identifier}' is a duplicate, not saving: NLQ='{natural_language_question[:50]}...'", file=sys.stderr)
+        print(f"NLQ-SQL pair for '{db_name_identifier}' is a duplicate in JSON, not saving: NLQ='{natural_language_question[:50]}...'", file=sys.stderr)
+        # Even if duplicate in JSON, try adding to vector store as it might have its own duplicate check or be a fresh store
+        try:
+            print(f"Attempting to add (potentially duplicate for JSON) NLQ-SQL pair to vector store for '{db_name_identifier}'...")
+            vector_store_module.add_nlq_sql_pair(
+                db_name_identifier=db_name_identifier,
+                nlq=natural_language_question,
+                sql=sql_query
+            )
+        except Exception as e_vec_dup:
+            print(f"Error adding (potentially duplicate for JSON) NLQ-SQL pair to vector store for '{db_name_identifier}': {e_vec_dup}", file=sys.stderr)
 
 
 def read_nl2sql_data(db_name_identifier: str) -> Optional[List[Dict[str, str]]]:
