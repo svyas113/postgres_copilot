@@ -108,6 +108,7 @@ class InsightsExtractionModel(BaseModel):
     specific_database_insights_map: Dict[str, List[str]] = Field(default_factory=dict, description="Map of database-specific insights. Key is a db identifier.")
     
     general_sql_best_practices: GeneralSQLBestPracticesInsights = Field(default_factory=GeneralSQLBestPracticesInsights)
+    last_updated: Optional[str] = Field(None, description="Timestamp of the last update in ISO format.")
 
     def add_insight(self, section_path: str, insight_text: str, db_name_hint: Optional[str] = None):
         """
