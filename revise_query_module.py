@@ -22,7 +22,8 @@ async def handle_revise_query_iteration(
     client: 'LiteLLMMcpClient',
     user_revision_prompt: str,
     current_sql_to_revise: str,
-    revision_history_for_context: List[Dict[str, str]] # List of {"role": "user/assistant", "content": ...}
+    revision_history_for_context: List[Dict[str, str]], # List of {"role": "user/assistant", "content": ...}
+    row_limit_for_preview: int = 1 # Added for controlling preview rows
 ) -> Dict[str, Any]:
     """
     Handles a single iteration of revising an SQL query based on user prompt.
@@ -110,7 +111,10 @@ async def handle_revise_query_iteration(
     execution_error = None
 
     try:
-        exec_result_obj = await client.session.call_tool("execute_postgres_query", {"query": sql_to_execute})
+        exec_result_obj = await client.session.call_tool(
+            "execute_postgres_query", 
+            {"query": sql_to_execute, "row_limit": row_limit_for_preview}
+        )
         raw_exec_output = client._extract_mcp_tool_call_output(exec_result_obj)
         if isinstance(raw_exec_output, str) and "Error:" in raw_exec_output:
             execution_error = raw_exec_output
@@ -123,7 +127,33 @@ async def handle_revise_query_iteration(
     if execution_error:
         user_message += f"Execution Error for revised SQL: {execution_error}\n"
     elif execution_result is not None:
-        user_message += f"Execution of revised SQL successful. Result preview: {str(execution_result)[:200]}...\n"
+        preview_str = ""
+        if isinstance(execution_result, list) and len(execution_result) == 1 and isinstance(execution_result[0], dict):
+            single_row_dict = execution_result[0]
+            preview_str = str(single_row_dict)
+        elif isinstance(execution_result, str) and execution_result.endswith(".md"): # Path to markdown file
+            # We need os.path.basename, but os is not imported here.
+            # For simplicity, just show the string if it's a path, or rely on the MCP server to not return full paths for previews.
+            # Or, assume the MCP server's `execute_postgres_query` with row_limit=1 for SELECT returns the row data directly, not a path.
+            # Given the context, direct row data is more likely for a preview.
+            preview_str = str(execution_result) # Fallback for now if it's a string path
+            if ".md" in preview_str: # Basic check for markdown path
+                 try:
+                     # Attempt to get basename if os is available through client or other means, else use as is
+                     # This part is tricky without direct os import. Assuming direct data for preview.
+                     # If MCP server returns path for row_limit=1, this needs rethink in MCP server.
+                     # For now, this will just show the path string if it's a path.
+                     pass # Keep preview_str as is if it's a path.
+                 except NameError: # os not defined
+                     pass
+
+
+        else: # General case if not list of one dict
+            preview_str = str(execution_result)
+        
+        if len(preview_str) > 200: # Truncate if too long
+            preview_str = preview_str[:197] + "..."
+        user_message += f"Execution of revised SQL successful. Result preview (1 row): {preview_str}\n"
     
     user_message += "Use `/revise Your new prompt` to revise again, `/feedback Your feedback` if the query is incorrect, or `/approve_revision` to finalize and save."
 

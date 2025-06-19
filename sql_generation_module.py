@@ -19,7 +19,8 @@ async def generate_sql_query(
     client: 'LiteLLMMcpClient', 
     natural_language_question: str,
     schema_and_sample_data: Optional[Dict[str, Any]], # Combined DDL and sample data
-    insights_markdown_content: Optional[str] # Content of summarized_insights.md
+    insights_markdown_content: Optional[str], # Content of summarized_insights.md
+    row_limit_for_preview: int = 1 # Added for controlling preview rows
 ) -> Dict[str, Any]:
     """
     Generates an SQL query based on a natural language question, schema data, and insights using LiteLLM.
@@ -224,7 +225,10 @@ async def generate_sql_query(
         # print(f"Executing SQL (Attempt {exec_attempt + 1}/{MAX_SQL_EXECUTION_RETRIES + 1}): {sql_to_execute}") # Internal
         
         try:
-            exec_result_obj = await client.session.call_tool("execute_postgres_query", {"query": sql_to_execute})
+            exec_result_obj = await client.session.call_tool(
+                "execute_postgres_query", 
+                {"query": sql_to_execute, "row_limit": row_limit_for_preview}
+            )
             raw_exec_output = client._extract_mcp_tool_call_output(exec_result_obj)
             
             if isinstance(raw_exec_output, str) and "Error:" in raw_exec_output:

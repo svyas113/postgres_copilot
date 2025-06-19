@@ -19,6 +19,7 @@ import memory_module
 import initialization_module
 import sql_generation_module
 import insights_module
+import revision_insights_module # Added
 import database_navigation_module
 import revise_query_module # Added
 import vector_store_module # Added for RAG
@@ -45,14 +46,6 @@ def check_available_providers():
     # Check Google AI
     gemini_key = os.getenv("GEMINI_API_KEY")
     google_key = os.getenv("GOOGLE_API_KEY")
-    # Debug print for API keys
-    print(f"DEBUG: (db-copilot script) GEMINI_API_KEY from env: {'SET' if gemini_key else 'NOT SET'}", file=sys.stderr)
-    if gemini_key:
-        print(f"DEBUG: (db-copilot script) GEMINI_API_KEY length: {len(gemini_key)}, first 5 chars: {gemini_key[:5] if gemini_key else ''}", file=sys.stderr)
-    print(f"DEBUG: (db-copilot script) GOOGLE_API_KEY from env: {'SET' if google_key else 'NOT SET'}", file=sys.stderr)
-    if google_key:
-        print(f"DEBUG: (db-copilot script) GOOGLE_API_KEY length: {len(google_key)}, first 5 chars: {google_key[:5] if google_key else ''}", file=sys.stderr)
-        
     if gemini_key or google_key:
         providers.append("Google AI (Gemini)")
     
@@ -71,23 +64,14 @@ def check_available_providers():
     return providers
 
 if os.path.exists(dotenv_path):
-    print(f"DEBUG: (db-copilot script) Loading .env file from: {dotenv_path}", file=sys.stderr)
-    dotenv_loaded = load_dotenv(dotenv_path=dotenv_path, verbose=True, override=True)
-    print(f"DEBUG: (db-copilot script) python-dotenv load_dotenv result: {dotenv_loaded}", file=sys.stderr)
-    
-    # Immediately check a known key after loading
-    debug_gemini_key_after_load = os.getenv("GEMINI_API_KEY")
-    print(f"DEBUG: (db-copilot script) GEMINI_API_KEY immediately after load_dotenv: {'SET' if debug_gemini_key_after_load else 'NOT SET'}", file=sys.stderr)
-    if debug_gemini_key_after_load:
-         print(f"DEBUG: (db-copilot script) GEMINI_API_KEY length after load: {len(debug_gemini_key_after_load)}, first 5: {debug_gemini_key_after_load[:5]}", file=sys.stderr)
-
+    load_dotenv(dotenv_path=dotenv_path, verbose=False, override=True) # verbose set to False
     available_providers = check_available_providers()
     
     if not available_providers:
         print(f"Warning: No API keys for common LLM providers found in {dotenv_path}.")
         print("Please ensure the correct keys for your chosen LiteLLM model are set.")
-    else:
-        print(f"Available LLM providers: {', '.join(available_providers)}")
+    # else: # Removed the print of available providers list
+        # print(f"Available LLM providers: {', '.join(available_providers)}") 
 else:
     print(f"Warning: .env file not found at {dotenv_path}. API keys for LiteLLM will likely be missing. Please run prerequisites.py if you haven't.", file=sys.stderr)
 
@@ -257,8 +241,7 @@ class LiteLLMMcpClient:
                 
                 if tool_schema:
                     if 'properties' not in tool_schema and tool_schema:
-                        # print(f"Warning: Tool '{tool_name}' schema might not be directly OpenAI compatible: {tool_schema}") # Debug
-                        pass
+                        pass # No debug print
                     elif 'properties' in tool_schema:
                          tool_schema['type'] = 'object'
                     tool_schema.pop('title', None)
@@ -292,11 +275,6 @@ class LiteLLMMcpClient:
                                   response_format: Optional[dict] = None) -> Any:
         """Sends messages to LiteLLM and handles response, including tool calls."""
         try:
-            # print(f"Sending to LiteLLM ({self.model_name}). Messages: {json.dumps(messages, indent=2)[:200]}...") # Debug, too verbose
-            # if tools: # Debug
-            #     print(f"Tools provided: {[tool['function']['name'] for tool in tools]}")
-            # print(f"{Fore.MAGENTA}DEBUG: Sending to LLM. Model: {self.model_name}{Style.RESET_ALL}") # Optional debug
-            
             # Prepare kwargs for acompletion
             kwargs = {
                 "model": self.model_name,
@@ -320,6 +298,26 @@ class LiteLLMMcpClient:
                  self.conversation_history.append(messages[-1])
 
             return response
+        except Exception as e:
+            # Log error to stderr instead of displaying to user
+            print(f"{Fore.RED}Error calling LiteLLM: {e}{Style.RESET_ALL}", file=sys.stderr)
+            # Add user message to history even if call fails, to keep track
+            if messages[-1]["role"] == "user" and messages[-1] not in self.conversation_history:
+                 self.conversation_history.append(messages[-1])
+            # Add a placeholder error message to history for the assistant
+            self.conversation_history.append({"role": "assistant", "content": "I'm having trouble processing your request. Let me try again."})
+            raise # Re-raise the exception to be handled by the caller
+        except litellm.AuthenticationError as auth_e:
+            error_message = (
+                f"{Fore.RED}LiteLLM Authentication Error: {auth_e}. "
+                f"This often means the API key is invalid, not activated, or the service (e.g., Gemini, OpenAI) has an issue with your account (e.g., billing, permissions). "
+                f"Please double-check your API key in 'passwords/.env' and your cloud provider console (e.g., Google Cloud Console for Gemini).{Style.RESET_ALL}"
+            )
+            print(error_message, file=sys.stderr)
+            if messages[-1]["role"] == "user" and messages[-1] not in self.conversation_history:
+                 self.conversation_history.append(messages[-1])
+            self.conversation_history.append({"role": "assistant", "content": "There was an authentication error with the AI service. Please check your API key and service settings."})
+            raise # Re-raise to be handled by the caller, which might show a user-facing message
         except Exception as e:
             # Log error to stderr instead of displaying to user
             print(f"{Fore.RED}Error calling LiteLLM: {e}{Style.RESET_ALL}", file=sys.stderr)
@@ -369,15 +367,13 @@ class LiteLLMMcpClient:
                     "function": {"name": tool_name, "arguments": tool_args_str}
                 })
 
-                # print(f"LLM wants to call tool: {tool_name} with args: {tool_args_str}") # Debug
                 try:
                     tool_args = json.loads(tool_args_str)
                     mcp_tool_result_obj = await self.session.call_tool(tool_name, tool_args)
                     tool_output = self._extract_mcp_tool_call_output(mcp_tool_result_obj)
-                    # print(f"Tool {tool_name} output: {str(tool_output)[:200]}...") # Debug
                 except json.JSONDecodeError as e_json:
                     tool_output = f"Error: Invalid JSON arguments for tool {tool_name}: {e_json}. Arguments received: {tool_args_str}"
-                    # print(tool_output, file=sys.stderr) # Keep for critical errors
+                    print(f"{Fore.RED}MCP Tool Error: Invalid JSON arguments for tool {tool_name}: {e_json}. Args: {tool_args_str}{Style.RESET_ALL}", file=sys.stderr) # Keep for critical errors
                 except Exception as e_tool:
                     tool_output = f"Error executing tool {tool_name}: {e_tool}"
                     # print(tool_output, file=sys.stderr) # Keep for critical errors
@@ -403,7 +399,7 @@ class LiteLLMMcpClient:
             # ..., user_prompt, assistant_tool_call_request, tool_response_1, ...
             # So we can just send the current self.conversation_history
             
-            follow_up_llm_response = await self._send_message_to_llm(self.conversation_history, tools=self.litellm_tools) # Pass history
+            follow_up_llm_response = await self._send_message_to_llm(self.conversation_history, tools=self.litellm_tools)
             
             # Process this new response (which should be the final text from LLM after tools)
             # This recursive call is safe as long as LLM doesn't loop infinitely on tool calls
@@ -446,65 +442,93 @@ class LiteLLMMcpClient:
             return message
 
     async def dispatch_command(self, query: str) -> str:
-        if not self.session: # LiteLLM client doesn't use self.chat in the same way
+        if not self.session:
             return "Error: Client not fully initialized (MCP session missing)."
 
-        # Command: /change_database: "connection_string" or just "connection_string" for implicit init
-        conn_str_explicit_match = re.match(r"/change_database:\s*(.+)", query, re.IGNORECASE) # Allow unquoted connection string
-        parsed_conn_str, parsed_db_name_id = None, None
+        # Flexible command parsing: command can be followed by ':' or space, then argument
+        command_match = re.match(r"/(\w+)(?:\s*:?\s*)(.*)", query, re.IGNORECASE)
+        
+        base_command_lower = ""
+        argument_text = ""
 
-        if conn_str_explicit_match:
-            raw_conn_str = conn_str_explicit_match.group(1).strip() 
-            if raw_conn_str.startswith('"') and raw_conn_str.endswith('"'):
+        if command_match:
+            base_command_lower = command_match.group(1).lower()
+            argument_text = command_match.group(2).strip()
+        elif query.startswith("/"): # Handles commands like /approved with no args
+            base_command_lower = query[1:].lower()
+        # If not a command starting with "/", it will be handled by implicit init or navigation query later
+
+        # Handle initialization attempts first
+        if base_command_lower == "change_database":
+            raw_conn_str = argument_text
+            if raw_conn_str.startswith('"') and raw_conn_str.endswith('"'): # Handle quoted string
                 raw_conn_str = raw_conn_str[1:-1]
             parsed_conn_str, parsed_db_name_id = self._extract_connection_string_and_db_name(raw_conn_str)
-            if not parsed_conn_str: return "Error: Invalid connection string format provided with /change_database."
-            # print(f"Received /change_database for {parsed_db_name_id}...") # User sees the result
+            if not parsed_conn_str: 
+                return "Error: Invalid connection string format provided with /change_database. Expected: postgresql://user:pass@host:port/dbname"
             return await self._handle_initialization(parsed_conn_str, parsed_db_name_id)
-        
+
+        # Check for implicit initialization if not already initialized
         if not self.is_initialized:
-            parsed_conn_str, parsed_db_name_id = self._extract_connection_string_and_db_name(query)
+            parsed_conn_str, parsed_db_name_id = self._extract_connection_string_and_db_name(query) # Use original query for implicit check
             if parsed_conn_str:
-                # print(f"Attempting implicit initialization for {parsed_db_name_id}...") # User sees the result
                 return await self._handle_initialization(parsed_conn_str, parsed_db_name_id)
             else:
-                return "Error: Database not initialized. Please provide a connection string (e.g., postgresql://user:pass@host:port/dbname) or use /change_database."
+                # If not initialized and not an attempt to initialize (via /change_database or raw string),
+                # prompt specifically for connection.
+                return "Error: Database not initialized. Please provide a connection string (e.g., postgresql://user:pass@host:port/dbname) or use '/change_database {connection_string}' to connect."
 
+        # If we reach here, self.is_initialized must be True.
+        # Perform a redundant check just in case, though the logic above should ensure it.
         if not self.is_initialized or not self.current_db_name_identifier or self.db_schema_and_sample_data is None:
-             # This state should ideally not be reached if logic above is correct
-            return "Critical Error: Database initialization state is inconsistent. Please try /change_database again."
+            # This state should ideally not be reached if the above logic is correct.
+            return "Critical Error: Database initialization state is inconsistent. Please try /change_database again or provide a connection string."
 
-        # Command: /generate_sql: {Natural language question}
-        generate_sql_match = re.match(r"/generate_sql:\s*(.+)", query, re.IGNORECASE)
-        if generate_sql_match:
-            nl_question = generate_sql_match.group(1).strip()
-            # Reset both feedback and revision states for a new /generate_sql command
+        # Command: /generate_sql
+        if base_command_lower == "generate_sql":
+            nl_question = argument_text
+            if not nl_question: return "Error: Please provide a natural language question after /generate_sql."
             self._reset_feedback_cycle_state()
             self._reset_revision_cycle_state()
             self.current_natural_language_question = nl_question
-            # print(f"Received /generate_sql for: {nl_question}") # User sees the result
-
-            print("Generating SQL, please wait...") # User-facing wait message
+            print("Generating SQL, please wait...")
             sql_gen_result_dict = await sql_generation_module.generate_sql_query(
-                self, nl_question, self.db_schema_and_sample_data, self.cumulative_insights_content
+                self, nl_question, self.db_schema_and_sample_data, self.cumulative_insights_content,
+                row_limit_for_preview=1 # Ensure 1 row for preview from sql_generation_module
             )
             
-            # Populate FeedbackReportContentModel (initial state)
             if sql_gen_result_dict.get("sql_query"):
                 self.current_feedback_report_content = FeedbackReportContentModel(
                     natural_language_question=nl_question,
                     initial_sql_query=sql_gen_result_dict["sql_query"],
                     initial_explanation=sql_gen_result_dict.get("explanation", "N/A"),
-                    final_corrected_sql_query=sql_gen_result_dict["sql_query"], # Initially same
-                    final_explanation=sql_gen_result_dict.get("explanation", "N/A") # Initially same
-                    # Other fields like analysis will be filled by LLM during feedback or approval
+                    final_corrected_sql_query=sql_gen_result_dict["sql_query"], 
+                    final_explanation=sql_gen_result_dict.get("explanation", "N/A") 
                 )
-                # TODO: Consider an LLM call here to fill `why_initial_query_was_wrong_or_suboptimal` etc.
-                # if the initial query had an execution error. For now, these are blank.
-            else: # SQL generation failed at the first step
-                 self.current_feedback_report_content = None # Ensure it's cleared
+            else: 
+                 self.current_feedback_report_content = None 
             
             base_message_to_user = sql_gen_result_dict.get("message_to_user", "Error: No message from SQL generation.")
+            
+            # Append execution result or error to the message_to_user
+            exec_result = sql_gen_result_dict.get("execution_result")
+            exec_error = sql_gen_result_dict.get("execution_error")
+
+            if exec_error:
+                base_message_to_user += f"\nExecution Error: {exec_error}\n"
+            elif exec_result is not None:
+                preview_str = ""
+                if isinstance(exec_result, list) and len(exec_result) == 1 and isinstance(exec_result[0], dict):
+                    single_row_dict = exec_result[0]
+                    preview_str = str(single_row_dict)
+                elif isinstance(exec_result, str) and exec_result.endswith(".md"): # Path to markdown file
+                    preview_str = f"Query result saved to {os.path.basename(exec_result)}"
+                else:
+                    preview_str = str(exec_result)
+                
+                if len(preview_str) > 200: # Truncate if too long
+                    preview_str = preview_str[:197] + "..."
+                base_message_to_user += f"\nExecution successful. Result preview (1 row): {preview_str}\n"
             
             # --- Augment message with display few-shot examples ---
             if self.current_db_name_identifier and self.current_natural_language_question:
@@ -529,10 +553,10 @@ class LiteLLMMcpClient:
             # --- End Augment ---
             return base_message_to_user
 
-        # Command: /feedback: {user_feedback_text}
-        feedback_match = re.match(r"/feedback:\s*(.+)", query, re.IGNORECASE)
-        if feedback_match:
-            user_feedback_text = feedback_match.group(1).strip()
+        # Command: /feedback
+        if base_command_lower == "feedback":
+            user_feedback_text = argument_text
+            if not user_feedback_text: return "Error: Please provide your feedback text after /feedback."
             print("Processing feedback, please wait...")
 
             if self.is_in_revision_mode and self.current_revision_report_content and self.current_revision_report_content.final_revised_sql_query:
@@ -607,7 +631,7 @@ class LiteLLMMcpClient:
 
                     exec_result, exec_error = None, None
                     try:
-                        exec_obj = await self.session.call_tool("execute_postgres_query", {"query": corrected_sql_from_feedback})
+                        exec_obj = await self.session.call_tool("execute_postgres_query", {"query": corrected_sql_from_feedback, "row_limit": 1})
                         raw_output = self._extract_mcp_tool_call_output(exec_obj)
                         if isinstance(raw_output, str) and "Error:" in raw_output: exec_error = raw_output
                         else: exec_result = raw_output
@@ -615,8 +639,21 @@ class LiteLLMMcpClient:
 
                     user_msg = f"Feedback applied to revised query. New SQL attempt:\n```sql\n{corrected_sql_from_feedback}\n```\n"
                     user_msg += f"Explanation:\n{corrected_explanation_from_feedback}\n"
-                    if exec_error: user_msg += f"\nExecution Error for new SQL: {exec_error}\n"
-                    else: user_msg += f"\nExecution of new SQL successful. Result preview: {str(exec_result)[:200]}...\n"
+                    if exec_error: 
+                        user_msg += f"\nExecution Error for new SQL: {exec_error}\n"
+                    elif exec_result is not None:
+                        preview_str = ""
+                        if isinstance(exec_result, list) and len(exec_result) == 1 and isinstance(exec_result[0], dict):
+                            single_row_dict = exec_result[0]
+                            preview_str = str(single_row_dict)
+                        elif isinstance(exec_result, str) and exec_result.endswith(".md"):
+                             preview_str = f"Query result saved to {os.path.basename(exec_result)}"
+                        else:
+                            preview_str = str(exec_result)
+
+                        if len(preview_str) > 200:
+                            preview_str = preview_str[:197] + "..."
+                        user_msg += f"\nExecution of new SQL successful. Result preview (1 row): {preview_str}\n"
                     user_msg += "Use `/revise Your new prompt`, more `/feedback`, or `/approve_revision`."
                     return user_msg
                 else:
@@ -671,7 +708,7 @@ class LiteLLMMcpClient:
                         
                         exec_result, exec_error = None, None
                         try:
-                            exec_obj = await self.session.call_tool("execute_postgres_query", {"query": updated_report_model.final_corrected_sql_query})
+                            exec_obj = await self.session.call_tool("execute_postgres_query", {"query": updated_report_model.final_corrected_sql_query, "row_limit": 1})
                             raw_output = self._extract_mcp_tool_call_output(exec_obj)
                             if isinstance(raw_output, str) and "Error:" in raw_output: exec_error = raw_output
                             else: exec_result = raw_output
@@ -679,8 +716,21 @@ class LiteLLMMcpClient:
 
                         user_msg = f"Feedback processed. New SQL attempt:\n```sql\n{updated_report_model.final_corrected_sql_query}\n```\n"
                         user_msg += f"Explanation:\n{updated_report_model.final_explanation}\n"
-                        if exec_error: user_msg += f"\nExecution Error for new SQL: {exec_error}\n"
-                        else: user_msg += f"\nExecution of new SQL successful. Result preview: {str(exec_result)[:200]}...\n"
+                        if exec_error: 
+                            user_msg += f"\nExecution Error for new SQL: {exec_error}\n"
+                        elif exec_result is not None:
+                            preview_str = ""
+                            if isinstance(exec_result, list) and len(exec_result) == 1 and isinstance(exec_result[0], dict):
+                                single_row_dict = exec_result[0]
+                                preview_str = str(single_row_dict)
+                            elif isinstance(exec_result, str) and exec_result.endswith(".md"):
+                                preview_str = f"Query result saved to {os.path.basename(exec_result)}"
+                            else:
+                                preview_str = str(exec_result)
+                            
+                            if len(preview_str) > 200:
+                                preview_str = preview_str[:197] + "..."
+                            user_msg += f"\nExecution of new SQL successful. Result preview (1 row): {preview_str}\n"
                         user_msg += "Provide more /feedback or use /approved to save."
                         return user_msg
 
@@ -697,7 +747,7 @@ class LiteLLMMcpClient:
 
 
         # Command: /approved
-        if query.strip().lower() == "/approved":
+        if base_command_lower == "approved":
             if not self.current_feedback_report_content:
                 return "Error: No feedback report to approve. Use /generate_sql first."
 
@@ -748,10 +798,10 @@ class LiteLLMMcpClient:
             except Exception as e:
                 return f"Error during approval process: {e}"
 
-        # Command: /revise: {revision_prompt}
-        revise_match = re.match(r"/revise:\s*(.+)", query, re.IGNORECASE)
-        if revise_match:
-            revision_prompt = revise_match.group(1).strip()
+        # Command: /revise
+        if base_command_lower == "revise":
+            revision_prompt = argument_text
+            if not revision_prompt: return "Error: Please provide a revision prompt after /revise."
             
             sql_to_start_revision_with = None
             if self.is_in_revision_mode and self.current_revision_report_content and self.current_revision_report_content.final_revised_sql_query:
@@ -783,7 +833,8 @@ class LiteLLMMcpClient:
                 self,
                 user_revision_prompt=revision_prompt,
                 current_sql_to_revise=current_sql_for_this_iteration,
-                revision_history_for_context=revision_history_for_llm_context
+                revision_history_for_context=revision_history_for_llm_context,
+                row_limit_for_preview=1 # Added row_limit_for_preview
             )
 
             if revision_result.get("revised_sql_query") and self.current_revision_report_content:
@@ -799,7 +850,7 @@ class LiteLLMMcpClient:
             return revision_result.get("message_to_user", "Error in revision process.")
 
         # Command: /approve_revision
-        if query.strip().lower() == "/approve_revision":
+        if base_command_lower == "approve_revision":
             if not self.is_in_revision_mode or not self.current_revision_report_content or not self.current_revision_report_content.final_revised_sql_query:
                 return "Error: No active revision cycle or final revised SQL to approve. Use /revise first."
 
@@ -831,9 +882,9 @@ class LiteLLMMcpClient:
                     )
                     user_msg_parts.append(f"This NLQ-SQL pair has been saved for '{self.current_db_name_identifier}'.")
 
-                    # --- New: Generate feedback report and insights if feedback was used in revision ---
+                    # --- Generate feedback report and insights ONLY IF feedback was used in revision ---
                     if self.feedback_used_in_current_revision_cycle and self.feedback_log_in_revision:
-                        print("Processing feedback from revision cycle for report and insights...") # User-facing message
+                        user_msg_parts.append("Processing feedback from revision cycle for report and insights...")
                         
                         report_feedback_iterations = [
                             FeedbackIteration(
@@ -921,56 +972,72 @@ class LiteLLMMcpClient:
                                         self.cumulative_insights_content = memory_module.read_insights_file(self.current_db_name_identifier)
                                     else:
                                         user_msg_parts.append("Warning: Failed to update insights from revision feedback.")
-                                else:
+                                else: # saved_feedback_md_content_rev is None
                                     user_msg_parts.append("Warning: Could not read back revision feedback file for insights processing.")
                             except Exception as e_fb_insights_rev:
                                 user_msg_parts.append(f"Error during feedback report/insights saving for revision: {e_fb_insights_rev}")
-                        else:
-                             user_msg_parts.append("Warning: Could not generate the full feedback report for the revision cycle.")
-                    # --- End new section ---
-
+                        else: # updated_feedback_report_from_revision is None
+                            user_msg_parts.append("Warning: Could not generate the full feedback report for the revision cycle (LLM analysis failed).")
+                    elif not self.feedback_used_in_current_revision_cycle and self.current_revision_report_content:
+                        # Generate insights directly from revision history
+                        user_msg_parts.append("Processing revision history for insights...")
+                        try:
+                            insights_from_revision_success = await revision_insights_module.generate_insights_from_revision_history(
+                                self,
+                                self.current_revision_report_content,
+                                self.current_db_name_identifier
+                            )
+                            if insights_from_revision_success:
+                                user_msg_parts.append("Insights successfully generated/updated from revision history.")
+                                self.cumulative_insights_content = memory_module.read_insights_file(self.current_db_name_identifier)
+                            else:
+                                user_msg_parts.append("Warning: Failed to generate or update insights from revision history.")
+                        except Exception as e_rev_ins:
+                            user_msg_parts.append(f"Error during revision insights generation: {e_rev_ins}")
+                    
                     user_msg_parts.append("You can start a new query with /generate_sql.")
-                    self._reset_revision_cycle_state() # Also resets the new feedback flags
+                    self._reset_revision_cycle_state() 
                     return "\n".join(user_msg_parts)
                 
                 except Exception as e_save:
                     return f"Error saving approved revision NLQ-SQL pair: {e_save}"
-            else:
+            else: # Paired with: if nlq_gen_result.get("generated_nlq") ...
                 return nlq_gen_result.get("message_to_user", "Error: Could not generate NLQ for the revised SQL.")
         
-        if query.strip().lower() == "/list_commands":
+        if base_command_lower in ["list_commands", "help", "?"]:
             return self._get_commands_help_text()
 
-        if not query.startswith("/"):
-            # DO NOT reset feedback/revision state here.
-            # Allow navigation queries without breaking the current SQL refinement loop.
-            return await database_navigation_module.handle_navigation_query(
-                self, query, self.current_db_name_identifier, 
-                self.cumulative_insights_content, self.db_schema_and_sample_data
-            )
+        # If it's not a recognized command and starts with "/", it's unknown.
+        if query.startswith("/"):
+            return (f"Unknown command: '{query.split(None, 1)[0]}'. Current database: {self.current_db_name_identifier or 'None'}.\n"
+                    f"Type /help, /? or /list_commands for available commands.")
 
-        return (f"Unknown command: '{query.split()[0]}'. Current database: {self.current_db_name_identifier or 'None'}.\n"
-                f"Type /list_commands for available commands.")
+        # If not a command (doesn't start with "/"), treat as navigation query
+        # DO NOT reset feedback/revision state here.
+        return await database_navigation_module.handle_navigation_query(
+            self, query, self.current_db_name_identifier, 
+            self.cumulative_insights_content, self.db_schema_and_sample_data
+        )
 
     def _get_commands_help_text(self) -> str:
         """Returns the help text for commands."""
         return (
-            "Available commands:\n"
-            "  /change_database: \"postgresql://user:pass@host:port/dbname\"\n"
-            "    - Connects to a new PostgreSQL database or changes the active one.\n"
-            "  /generate_sql: {Your natural language question for SQL}\n"
+            "Available commands (use ':' or space after command, e.g., /generate_sql Your question):\n"
+            "  /change_database {connection_string}\n"
+            "    - Connects to a new PostgreSQL database. Example: /change_database postgresql://user:pass@host:port/dbname\n"
+            "  /generate_sql {natural_language_question}\n"
             "    - Generates a SQL query based on your question.\n"
-            "  /feedback: {Your feedback on the last generated SQL}\n"
-            "    - Provide feedback to refine the last SQL query from /generate_sql or /feedback.\n"
+            "  /feedback {your_feedback_text}\n"
+            "    - Provide feedback to refine the last SQL query.\n"
             "  /approved\n"
             "    - Approves the last SQL query from /generate_sql or /feedback. Saves report, insights, and NLQ-SQL pair.\n"
-            "  /revise: {Your revision prompt for the last SQL query}\n"
-            "    - Iteratively revises the last generated/fed-back/revised SQL query.\n"
+            "  /revise {your_revision_prompt}\n"
+            "    - Iteratively revises the last SQL query.\n"
             "  /approve_revision\n"
-            "    - Approves the final SQL from a /revise cycle. Generates an NLQ for it and saves the pair.\n"
-            "  /list_commands\n"
+            "    - Approves the final SQL from a /revise cycle. Generates an NLQ and saves the pair. Insights are generated based on revision history.\n"
+            "  /list_commands, /help, /?\n"
             "    - Shows this list of available commands.\n"
-            "  Or, type a natural language question without a '/' prefix to ask about the current database schema or insights (resets feedback/revision state)."
+            "  Or, type a natural language question without a '/' prefix to ask about the current database schema or insights."
         )
 
     async def chat_loop(self):
@@ -982,13 +1049,12 @@ class LiteLLMMcpClient:
         if is_first_run:
             print(f"\n{Fore.YELLOW}Welcome! It looks like this is your first time running the Co-Pilot.{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}Please ensure you have run 'python prerequisites.py' to set up necessary folders and get API key instructions.{Style.RESET_ALL}")
-            print(self._get_commands_help_text()) # Show full help on first run
+            print(self._get_commands_help_text())
         else:
-            # On subsequent runs, just remind them about /list_commands
-            print(f"\n{Fore.CYAN}Type '/list_commands' to see available commands.{Style.RESET_ALL}")
+            print(f"\n{Fore.CYAN}Type '/help', '/?' or '/list_commands' to see available commands.{Style.RESET_ALL}")
         
         print(f"\n{Fore.CYAN}Type a PostgreSQL connection string (e.g., postgresql://user:pass@host:port/dbname) to begin,{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}or use '/change_database: \"your_connection_string\"'. Type 'quit' to exit.{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}or use '/change_database your_connection_string'. Type 'quit' to exit.{Style.RESET_ALL}")
 
         while True:
             try:
@@ -999,10 +1065,11 @@ class LiteLLMMcpClient:
                 if user_input_query.lower() == 'quit':
                     await self._cleanup_database_session(full_cleanup=True)
                     break
-                if not user_input_query: continue
+                if not user_input_query: # Empty input
+                    print(f"\n{Fore.CYAN}{Style.BRIGHT}AI:{Style.RESET_ALL} {self._get_commands_help_text()}")
+                    continue
                 
                 # Add user input to conversation history before dispatching
-                # self.conversation_history.append({"role": "user", "content": user_input_query})
                 # Dispatch command will handle adding to history via _send_message_to_llm
 
                 response_text = await self.dispatch_command(user_input_query)
@@ -1084,11 +1151,7 @@ async def main():
 
     # The vector_store_module now uses its own hardcoded constants for thresholds.
     # No explicit call to configure_thresholds is needed here anymore.
-    # Print a message indicating where these are now set.
-    print(f"Vector store thresholds are now set directly in vector_store_module.py:")
-    print(f"  RAG Threshold: {vector_store_module.LITELLM_RAG_THRESHOLD}")
-    print(f"  Display Threshold: {vector_store_module.LITELLM_DISPLAY_THRESHOLD}")
-    print(f"  Embedding Model: {vector_store_module.LITELLM_EMBEDDING_MODEL}")
+    # Startup message for these thresholds is removed as per user request.
     
     try:
         # memory_module.ensure_memory_directories() is called on its import.
