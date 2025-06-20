@@ -1,3 +1,4 @@
+import sys
 import os
 import lancedb
 import pyarrow as pa
@@ -5,14 +6,16 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import json # Still used for metadata if we choose to store it separately, but LanceDB can store it directly
 from typing import List, Tuple, Dict, Optional, Any
-import memory_module # For NL2SQL_DIR (used as base for LanceDB URI)
+from pathlib import Path # Added
+# import memory_module # No longer needed for LANCEDB_BASE_URI directly
+from postgres_copilot import config_manager # Added
 
 # --- Configuration (Hardcoded as per user request) ---
 LITELLM_EMBEDDING_MODEL: str = 'all-MiniLM-L6-v2'
 LITELLM_RAG_THRESHOLD: float = 0.75
 LITELLM_DISPLAY_THRESHOLD: float = 0.75 # As per user request
 
-LANCEDB_BASE_URI = os.path.join(memory_module.NL2SQL_DIR, "lancedb_stores")
+# LANCEDB_BASE_URI is now dynamic via _get_lancedb_base_uri()
 
 # --- Global Variables ---
 embedding_model: Optional[SentenceTransformer] = None
@@ -26,19 +29,33 @@ def _initialize_embedding_model() -> SentenceTransformer: # Removed model_name a
     if embedding_model is None:
         try:
             embedding_model = SentenceTransformer(LITELLM_EMBEDDING_MODEL)
-            print(f"Embedding model '{LITELLM_EMBEDDING_MODEL}' loaded successfully.")
+            # print(f"Embedding model '{LITELLM_EMBEDDING_MODEL}' loaded successfully.") # Removed
         except Exception as e:
-            print(f"Error loading embedding model '{LITELLM_EMBEDDING_MODEL}': {e}")
+            print(f"Error loading embedding model '{LITELLM_EMBEDDING_MODEL}': {e}", file=sys.stderr) # Keep errors on stderr
             raise
     return embedding_model
+
+_lancedb_base_uri_cache: Optional[Path] = None
+
+def _get_lancedb_base_uri() -> Path:
+    """Gets the configured base URI for LanceDB stores."""
+    global _lancedb_base_uri_cache
+    if _lancedb_base_uri_cache is None:
+        app_conf = config_manager.get_app_config()
+        # This path is now directly configured as 'nl2sql_vector_store_base_dir'
+        # and defaults to memory_base_dir / "lancedb_stores"
+        default_vector_store_path = Path(app_conf.get("memory_base_dir", config_manager.get_default_data_dir() / "memory")) / "lancedb_stores"
+        _lancedb_base_uri_cache = Path(app_conf.get("nl2sql_vector_store_base_dir", default_vector_store_path))
+    return _lancedb_base_uri_cache
 
 def _get_lancedb_connection() -> lancedb.DBConnection:
     """Initializes and returns the LanceDB connection."""
     global db_connection
     if db_connection is None:
-        os.makedirs(LANCEDB_BASE_URI, exist_ok=True)
-        db_connection = lancedb.connect(LANCEDB_BASE_URI)
-        print(f"LanceDB connection established at: {LANCEDB_BASE_URI}")
+        lancedb_uri = _get_lancedb_base_uri()
+        lancedb_uri.mkdir(parents=True, exist_ok=True)
+        db_connection = lancedb.connect(str(lancedb_uri)) # lancedb.connect expects a string URI
+        # print(f"LanceDB connection established at: {lancedb_uri}") # Removed
     return db_connection
 
 def get_table_name(db_name_identifier: str) -> str:
@@ -55,10 +72,8 @@ def _get_or_create_table(db_name_identifier: str) -> lancedb.table.Table:
     table_name = get_table_name(db_name_identifier)
     
     if table_name in conn.table_names():
-        print(f"Opening existing LanceDB table: {table_name}")
         return conn.open_table(table_name)
     else:
-        print(f"Creating new LanceDB table: {table_name}")
         # Define schema for the table
         # The embedding model needs to be initialized to get the dimension
         model = _initialize_embedding_model()
@@ -100,7 +115,7 @@ def add_nlq_sql_pair(db_name_identifier: str, nlq: str, sql: str):
         
         existing_records = table.search().where(filter_condition).limit(1).to_df()
         if not existing_records.empty:
-            print(f"NLQ-SQL pair already exists in LanceDB table '{table.name}'. Skipping.")
+            # print(f"NLQ-SQL pair already exists in LanceDB table '{table.name}'. Skipping.") # Removed
             return
     except Exception as e:
         print(f"Warning: Could not check for duplicates in LanceDB table '{table.name}': {e}. Proceeding with add.")
@@ -111,7 +126,6 @@ def add_nlq_sql_pair(db_name_identifier: str, nlq: str, sql: str):
         
         data_to_add = [{"vector": nlq_embedding.tolist(), "nlq": nlq, "sql": sql}]
         table.add(data_to_add)
-        print(f"Added NLQ-SQL pair to LanceDB table '{table.name}'. Total rows: {len(table)}")
         # LanceDB tables are persistent, no explicit save like FAISS index file.
         # Compaction might be useful periodically for performance but not strictly after every add.
         # table.compact_files()
@@ -132,7 +146,7 @@ def search_similar_nlqs(db_name_identifier: str, query_nlq: str, k: int = 5, thr
     table = _get_or_create_table(db_name_identifier)
     
     if len(table) == 0:
-        print(f"LanceDB table '{table.name}' is empty. Cannot search.")
+        # print(f"LanceDB table '{table.name}' is empty. Cannot search.") # Removed
         return []
         
     model = _initialize_embedding_model()
@@ -199,15 +213,21 @@ if __name__ == "__main__":
     print(f"Using Display Threshold: {LITELLM_DISPLAY_THRESHOLD}")
     print(f"Using Embedding Model: {LITELLM_EMBEDDING_MODEL}")
 
-    memory_module.ensure_memory_directories() # Ensure NL2SQL_DIR and lancedb_stores exist
+    # ensure_memory_directories in memory_module will be called when config_manager is first accessed.
+    # This ensures the base NL2SQL directory (and thus lancedb_stores parent) is created.
+    # For testing, explicitly trigger config load if not done.
+    _ = config_manager.get_app_config() 
+
 
     test_db_lancedb = "test_lancedb_copilot_db"
     table_name_lancedb = get_table_name(test_db_lancedb)
     
+    current_lancedb_uri = str(_get_lancedb_base_uri()) # Get current dynamic URI for cleanup
+
     # Clean up old LanceDB table directory if it exists for a clean test
-    db_conn_for_cleanup = lancedb.connect(LANCEDB_BASE_URI)
+    db_conn_for_cleanup = lancedb.connect(current_lancedb_uri)
     if table_name_lancedb in db_conn_for_cleanup.table_names():
-        print(f"Dropping existing test table: {table_name_lancedb}")
+        print(f"Dropping existing test table: {table_name_lancedb} from {current_lancedb_uri}")
         db_conn_for_cleanup.drop_table(table_name_lancedb)
     
     # Ensure global db_connection is reset for the test to pick up the clean state

@@ -1,42 +1,75 @@
 import os
 import sys
 import json
+from pathlib import Path # Added
+from . import config_manager # Changed to relative
 import datetime
 from typing import Optional, Dict, Any, List
 
 # Assuming pydantic_models.py is in the same directory or accessible in PYTHONPATH
-from pydantic_models import FeedbackReportContentModel, InsightsExtractionModel, \
+from .pydantic_models import FeedbackReportContentModel, InsightsExtractionModel, \
                              SchemaUnderstandingInsights, QueryConstructionBestPracticesInsights, \
                              CommonErrorsAndCorrectionsInsights, DataValidationTechniquesInsights, \
-                             GeneralSQLBestPracticesInsights, FeedbackIteration
+                             GeneralSQLBestPracticesInsights, FeedbackIteration # Changed to relative
 
-# --- Directory Setup ---
-BASE_MEMORY_DIR = os.path.join(os.getcwd(), "memory")
-FEEDBACK_DIR = os.path.join(BASE_MEMORY_DIR, "feedback")
-INSIGHTS_DIR = os.path.join(BASE_MEMORY_DIR, "insights")
-SCHEMA_DIR = os.path.join(BASE_MEMORY_DIR, "schema")
-CONVERSATION_HISTORY_DIR = os.path.join(BASE_MEMORY_DIR, "conversation_history")
-NL2SQL_DIR = os.path.join(BASE_MEMORY_DIR, "NL2SQL") # Added for NL2SQL storage
+# --- Path Helper Functions (using config_manager) ---
 
-# Path for the cumulative insights file (Commented out as insights are now per-DB)
-# SUMMARIZED_INSIGHTS_FILE_PATH = os.path.join(INSIGHTS_DIR, "summarized_insights.md")
+_app_config_cache = None
+
+def _get_active_app_config() -> dict:
+    """Caches and returns the app configuration."""
+    global _app_config_cache
+    if _app_config_cache is None:
+        _app_config_cache = config_manager.get_app_config()
+    return _app_config_cache
+
+def get_memory_base_path() -> Path:
+    """Gets the configured base path for memory files."""
+    config = _get_active_app_config()
+    return Path(config.get("memory_base_dir", config_manager.get_default_data_dir() / "memory"))
+
+def get_approved_queries_path() -> Path:
+    """Gets the configured base path for storing NLQ-SQL JSON pair files."""
+    config = _get_active_app_config()
+    # Default to a subdirectory in the user's data directory if not configured
+    return Path(config.get("approved_queries_dir", config_manager.get_default_data_dir() / "Approved_NL2SQL_Pairs"))
+
+def get_vector_store_base_path() -> Path:
+    """Gets the configured base path for LanceDB vector stores."""
+    config = _get_active_app_config()
+    # This path is derived in config_manager and stored as 'nl2sql_vector_store_base_dir'
+    # It defaults to memory_base_dir / "lancedb_stores"
+    return Path(config.get("nl2sql_vector_store_base_dir", get_memory_base_path() / "lancedb_stores"))
+
+# This function is a temporary helper for postgres_copilot_chat.py's default value
+# until all modules fully use the config.
+def get_default_memory_base_path_text_for_chat_module() -> str:
+    return str(config_manager.get_default_data_dir() / "memory")
+
 
 def ensure_memory_directories():
-    """Ensures all necessary memory subdirectories exist."""
-    os.makedirs(BASE_MEMORY_DIR, exist_ok=True)
-    os.makedirs(FEEDBACK_DIR, exist_ok=True)
-    os.makedirs(INSIGHTS_DIR, exist_ok=True)
-    os.makedirs(SCHEMA_DIR, exist_ok=True)
-    os.makedirs(CONVERSATION_HISTORY_DIR, exist_ok=True)
-    os.makedirs(NL2SQL_DIR, exist_ok=True) # Ensure NL2SQL directory is created
-    # Removed print statement about memory directories
+    """Ensures all necessary memory subdirectories exist based on configuration."""
+    mem_base = get_memory_base_path()
+    approved_queries_base = get_approved_queries_path()
+    vector_store_base = get_vector_store_base_path() # This is memory_base / "lancedb_stores"
+
+    (mem_base / "feedback").mkdir(parents=True, exist_ok=True)
+    (mem_base / "insights").mkdir(parents=True, exist_ok=True)
+    (mem_base / "schema").mkdir(parents=True, exist_ok=True)
+    (mem_base / "conversation_history").mkdir(parents=True, exist_ok=True)
+    
+    approved_queries_base.mkdir(parents=True, exist_ok=True)
+    vector_store_base.mkdir(parents=True, exist_ok=True) # Ensure the parent for lancedb tables exists
+    # Individual lancedb table directories within vector_store_base will be handled by vector_store_module
 
 # Call it once on module load to ensure directories are ready
+# This will trigger config loading/initial_setup if not already done.
 ensure_memory_directories()
 
-def get_insights_filepath(db_name_identifier: str) -> str:
+
+def get_insights_filepath(db_name_identifier: str) -> Path:
     """Helper function to construct the filepath for a DB's insights file."""
-    return os.path.join(INSIGHTS_DIR, f"{db_name_identifier}_summarized_insights.md")
+    return get_memory_base_path() / "insights" / f"{db_name_identifier}_summarized_insights.md"
 
 # --- Feedback Report Handling ---
 
@@ -125,7 +158,8 @@ def save_feedback_markdown(report_content: FeedbackReportContentModel, db_name: 
     # Include db_name in filename if provided, for better organization
     filename_prefix = f"feedback_{db_name}_" if db_name else "feedback_"
     filename = f"{filename_prefix}{timestamp}.md"
-    filepath = os.path.join(FEEDBACK_DIR, filename)
+    feedback_dir = get_memory_base_path() / "feedback"
+    filepath = feedback_dir / filename
     
     try:
         with open(filepath, "w", encoding="utf-8") as f:
@@ -246,7 +280,7 @@ def read_insights_file(db_name_identifier: str) -> Optional[str]:
     insights_filepath = get_insights_filepath(db_name_identifier)
     
     if not os.path.exists(insights_filepath):
-        print(f"Insights file for '{db_name_identifier}' not found at: {insights_filepath}", file=sys.stderr)
+        # print(f"Insights file for '{db_name_identifier}' not found at: {insights_filepath}", file=sys.stderr) # Removed
         return None
     try:
         with open(insights_filepath, "r", encoding="utf-8") as f:
@@ -265,8 +299,9 @@ def save_schema_data(schema_data: Dict[str, Any], db_name: str) -> str:
     Returns the path to the saved file.
     """
     ensure_memory_directories()
+    schema_dir = get_memory_base_path() / "schema"
     filename = f"schema_sampledata_for_{db_name}.json"
-    filepath = os.path.join(SCHEMA_DIR, filename)
+    filepath = schema_dir / filename
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(schema_data, f, indent=2)
@@ -282,9 +317,10 @@ def read_schema_data(db_name: str) -> Optional[Dict[str, Any]]:
     Returns the data as a dictionary, or None if the file doesn't exist or an error occurs.
     """
     ensure_memory_directories() # Ensure schema dir exists
+    schema_dir = get_memory_base_path() / "schema"
     filename = f"schema_sampledata_for_{db_name}.json"
-    filepath = os.path.join(SCHEMA_DIR, filename)
-    if not os.path.exists(filepath):
+    filepath = schema_dir / filename
+    if not filepath.exists():
         print(f"Schema data file not found: {filepath}", file=sys.stderr)
         return None
     try:
@@ -295,13 +331,13 @@ def read_schema_data(db_name: str) -> Optional[Dict[str, Any]]:
         print(f"Error reading schema data from {filepath}: {e}", file=sys.stderr)
         return None
 
-import vector_store_module # Added for RAG integration
+from . import vector_store_module # Changed to relative
 
 # --- NL2SQL Storage Handling ---
 
-def get_nl2sql_filepath(db_name_identifier: str) -> str:
+def get_nl2sql_filepath(db_name_identifier: str) -> Path:
     """Helper function to construct the filepath for a DB's NL2SQL JSON file."""
-    return os.path.join(NL2SQL_DIR, f"{db_name_identifier}_nl2sql.json")
+    return get_approved_queries_path() / f"{db_name_identifier}_nl2sql_pairs.json" # Changed filename for clarity
 
 def save_nl2sql_pair(db_name_identifier: str, natural_language_question: str, sql_query: str):
     """
@@ -316,7 +352,7 @@ def save_nl2sql_pair(db_name_identifier: str, natural_language_question: str, sq
     new_entry = {"nlq": natural_language_question, "sql": sql_query}
     
     entries: List[Dict[str, str]] = []
-    if os.path.exists(filepath):
+    if filepath.exists():
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 entries = json.load(f)
@@ -346,32 +382,32 @@ def save_nl2sql_pair(db_name_identifier: str, natural_language_question: str, sq
             
             # --- Add to Vector Store ---
             try:
-                print(f"Attempting to add NLQ-SQL pair to vector store for '{db_name_identifier}'...")
+                # print(f"Attempting to add NLQ-SQL pair to vector store for '{db_name_identifier}'...") # Removed
                 vector_store_module.add_nlq_sql_pair(
                     db_name_identifier=db_name_identifier,
                     nlq=natural_language_question,
                     sql=sql_query
                 )
-                print(f"Successfully processed pair for vector store for '{db_name_identifier}'.")
+                # print(f"Successfully processed pair for vector store for '{db_name_identifier}'.") # Removed
             except Exception as e_vec:
-                print(f"Error adding NLQ-SQL pair to vector store for '{db_name_identifier}': {e_vec}", file=sys.stderr)
+                print(f"Error adding NLQ-SQL pair to vector store for '{db_name_identifier}': {e_vec}", file=sys.stderr) # Keep error print
             # --- End Add to Vector Store ---
 
         except Exception as e:
-            print(f"Error saving NL2SQL pair to {filepath}: {e}", file=sys.stderr)
+            print(f"Error saving NL2SQL pair to {filepath}: {e}", file=sys.stderr) # Keep error print
             # Optionally re-raise or handle more gracefully
     else:
         print(f"NLQ-SQL pair for '{db_name_identifier}' is a duplicate in JSON, not saving: NLQ='{natural_language_question[:50]}...'", file=sys.stderr)
         # Even if duplicate in JSON, try adding to vector store as it might have its own duplicate check or be a fresh store
         try:
-            print(f"Attempting to add (potentially duplicate for JSON) NLQ-SQL pair to vector store for '{db_name_identifier}'...")
+            # print(f"Attempting to add (potentially duplicate for JSON) NLQ-SQL pair to vector store for '{db_name_identifier}'...") # Removed
             vector_store_module.add_nlq_sql_pair(
                 db_name_identifier=db_name_identifier,
                 nlq=natural_language_question,
                 sql=sql_query
             )
         except Exception as e_vec_dup:
-            print(f"Error adding (potentially duplicate for JSON) NLQ-SQL pair to vector store for '{db_name_identifier}': {e_vec_dup}", file=sys.stderr)
+            print(f"Error adding (potentially duplicate for JSON) NLQ-SQL pair to vector store for '{db_name_identifier}': {e_vec_dup}", file=sys.stderr) # Keep error print
 
 
 def read_nl2sql_data(db_name_identifier: str) -> Optional[List[Dict[str, str]]]:
@@ -381,7 +417,7 @@ def read_nl2sql_data(db_name_identifier: str) -> Optional[List[Dict[str, str]]]:
     """
     ensure_memory_directories()
     filepath = get_nl2sql_filepath(db_name_identifier)
-    if not os.path.exists(filepath):
+    if not filepath.exists():
         print(f"NL2SQL data file not found: {filepath}", file=sys.stderr)
         return None
     try:

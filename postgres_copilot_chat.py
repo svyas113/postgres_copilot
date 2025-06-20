@@ -1,9 +1,11 @@
 import asyncio
+import asyncio
 import os
 import sys
 import subprocess # Keep for StdioServerParameters if server is run as subprocess
-from dotenv import load_dotenv
+# from dotenv import load_dotenv # Will be handled by config_manager
 from typing import Optional, Any, Dict, Tuple
+from pathlib import Path # Added
 from contextlib import AsyncExitStack
 import datetime
 import litellm
@@ -15,17 +17,18 @@ from mcp.types import Tool as McpTool
 import copy
 import re
 import json
-import memory_module
-import initialization_module
-import sql_generation_module
-import insights_module
-import revision_insights_module # Added
-import database_navigation_module
-import revise_query_module # Added
-import vector_store_module # Added for RAG
+from . import memory_module
+from . import initialization_module
+from . import sql_generation_module
+from . import insights_module
+from . import revision_insights_module # Added
+from . import database_navigation_module
+from . import revise_query_module # Added
+from . import vector_store_module # Added for RAG
+from . import model_change_module # Added for /change_model
 from colorama import Fore, Style, init as colorama_init # Added for Colorama
-# Removed: from config.settings import app_config, vector_store_config
-from pydantic_models import ( # Updated imports
+from . import config_manager # Changed to relative import
+from .pydantic_models import ( # Changed to relative import
     SQLGenerationResponse, 
     FeedbackReportContentModel, 
     FeedbackIteration,
@@ -33,71 +36,35 @@ from pydantic_models import ( # Updated imports
     RevisionIteration # Added
 )
 
-# --- Directory and .env Setup ---
-# These setup steps are now primarily handled by prerequisites.py
-# We still need to load .env here for the application to use the API key.
-PASSWORDS_DIR = os.path.join(os.path.dirname(__file__), 'passwords') # Corrected for script within db-copilot
-dotenv_path = os.path.join(PASSWORDS_DIR, '.env')
-
-def check_available_providers():
-    """Check which LLM providers have credentials available."""
-    providers = []
-    
-    # Check Google AI
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    google_key = os.getenv("GOOGLE_API_KEY")
-    if gemini_key or google_key:
-        providers.append("Google AI (Gemini)")
-    
-    # Check OpenAI
-    if os.getenv("OPENAI_API_KEY"):
-        providers.append("OpenAI")
-    
-    # Check AWS Bedrock
-    if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
-        providers.append("AWS Bedrock")
-    
-    # Check Anthropic (direct)
-    if os.getenv("ANTHROPIC_API_KEY"):
-        providers.append("Anthropic")
-    
-    return providers
-
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path=dotenv_path, verbose=False, override=True) # verbose set to False
-    available_providers = check_available_providers()
-    
-    if not available_providers:
-        print(f"Warning: No API keys for common LLM providers found in {dotenv_path}.")
-        print("Please ensure the correct keys for your chosen LiteLLM model are set.")
-    # else: # Removed the print of available providers list
-        # print(f"Available LLM providers: {', '.join(available_providers)}") 
-else:
-    print(f"Warning: .env file not found at {dotenv_path}. API keys for LiteLLM will likely be missing. Please run prerequisites.py if you haven't.", file=sys.stderr)
+# --- Configuration Setup ---
+# Configuration, including API keys and paths, is now handled by config_manager.py
+# The get_app_config() call in main() will ensure this is loaded/set up.
 
 # LiteLLM doesn't require a global configure call.
-# API keys are typically set as environment variables.
+# API keys are set as environment variables by config_manager.py based on user's choice.
 # LiteLLM will automatically use the appropriate credentials based on the model ID prefix.
 
 class LiteLLMMcpClient:
     """A client that connects to an MCP server and uses LiteLLM for interaction."""
 
-    def __init__(self, system_instruction: Optional[str] = None):
+    def __init__(self, app_config: dict, system_instruction: Optional[str] = None): # Added app_config
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
-        
-        # Revert to LITELLM_MODEL_ID from os.getenv, as app_config is removed for this context
-        self.model_name = os.getenv("LITELLM_MODEL_ID", "gemini/gemini-1.5-pro-latest")
+        self.app_config = app_config # Store app_config
+
+        self.model_name = self.app_config.get("model_id", "gemini/gemini-1.5-pro-latest") # Get from app_config
+        self.llm_api_key = self.app_config.get("api_key") # Store for potential direct use if needed
         
         # Determine model provider based on model name prefix
-        self.model_provider = "Unknown"
+        # Provider name from config_data['llm_provider'] can also be used directly
+        self.model_provider = self.app_config.get("llm_provider", "Unknown").capitalize()
+        # Fallback logic if llm_provider not in config, or to be more specific
         if self.model_name.startswith("gemini/"):
             self.model_provider = "Google AI (Gemini)"
         elif self.model_name.startswith("gpt-") or self.model_name.startswith("openai/"):
             self.model_provider = "OpenAI"
         elif self.model_name.startswith("bedrock/"):
             self.model_provider = "AWS Bedrock"
-            # Extract the actual model name from bedrock format
             if "claude" in self.model_name.lower():
                 self.model_provider += " (Anthropic Claude)"
         elif self.model_name.startswith("anthropic/") or self.model_name.startswith("claude"):
@@ -138,22 +105,11 @@ class LiteLLMMcpClient:
         self.is_in_revision_mode: bool = False
         self.feedback_used_in_current_revision_cycle: bool = False
         self.feedback_log_in_revision: list[Dict[str, str]] = []
-    
-    def _get_first_run_flag_path(self):
-        return os.path.join(memory_module.BASE_MEMORY_DIR, ".first_run_complete")
 
-    def _check_and_set_first_run(self) -> bool:
-        """Checks if this is the first run. If so, creates a flag file and returns True."""
-        flag_path = self._get_first_run_flag_path()
-        if not os.path.exists(flag_path):
-            try:
-                with open(flag_path, "w") as f:
-                    f.write(datetime.datetime.now().isoformat())
-                return True # It was the first run
-            except Exception as e:
-                print(f"{Fore.YELLOW}Warning: Could not create first run flag at {flag_path}: {e}{Style.RESET_ALL}", file=sys.stderr)
-                return False # Assume not first run if cannot create flag
-        return False # Flag exists, not first run
+    # The first_run concept is now implicitly handled by config_manager.get_app_config()
+    # which triggers initial_setup() if config.json doesn't exist.
+    # We can remove _get_first_run_flag_path and _check_and_set_first_run.
+    # The welcome message can be shown if initial_setup was triggered.
 
     async def _cleanup_database_session(self, full_cleanup: bool = True):
         # print("Cleaning up database session state...") # User doesn't need to see this
@@ -212,15 +168,22 @@ class LiteLLMMcpClient:
             else: return tool_call_result
         return "Error: Tool output not found or format not recognized."
 
-    async def connect_to_mcp_server(self, server_script_path: str):
+    async def connect_to_mcp_server(self, server_script_path: Path): # Changed type hint to Path
         # print(f"Connecting to MCP server script: {server_script_path}") # Internal detail
-        is_python = server_script_path.endswith('.py')
-        command = sys.executable if is_python else "node"
-        # If server_script_path is relative, make it relative to this script's directory
-        if not os.path.isabs(server_script_path):
-            server_script_path = os.path.join(os.path.dirname(__file__), server_script_path)
-
-        server_params = StdioServerParameters(command=command, args=[server_script_path], env=None)
+        
+        # server_script_path is now expected to be an absolute Path object from main()
+        is_python = server_script_path.suffix == '.py' # Use Path.suffix
+        command = sys.executable # sys.executable is a string path to the python interpreter
+        
+        # Ensure args for StdioServerParameters are strings
+        server_args = [str(server_script_path)]
+        
+        # The command to run is the python interpreter if it's a .py script
+        # If it were a node script, command would be 'node', etc.
+        # StdioServerParameters takes the command and then its arguments.
+        # So, if is_python, command is sys.executable, and server_args is [path_to_script.py]
+        
+        server_params = StdioServerParameters(command=command, args=server_args, env=None)
         try:
             stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
             read_stream, write_stream = stdio_transport
@@ -458,6 +421,37 @@ class LiteLLMMcpClient:
             base_command_lower = query[1:].lower()
         # If not a command starting with "/", it will be handled by implicit init or navigation query later
 
+        # Command: /change_model
+        if base_command_lower == "change_model":
+            if not argument_text: # Command can be run without arguments
+                success, message = await model_change_module.handle_change_model_interactive(self.app_config)
+                if success:
+                    # Update client's internal LLM settings from the modified app_config
+                    self.model_name = self.app_config.get("model_id", "gemini/gemini-1.5-pro-latest")
+                    self.llm_api_key = self.app_config.get("api_key")
+                    
+                    new_provider_name = self.app_config.get("llm_provider", "Unknown").capitalize()
+                    if self.model_name.startswith("gemini/"): self.model_provider = "Google AI (Gemini)"
+                    elif self.model_name.startswith("gpt-") or self.model_name.startswith("openai/"): self.model_provider = "OpenAI"
+                    elif self.model_name.startswith("bedrock/"):
+                        self.model_provider = "AWS Bedrock"
+                        if "claude" in self.model_name.lower(): self.model_provider += " (Anthropic Claude)"
+                    elif self.model_name.startswith("anthropic/") or self.model_name.startswith("claude"): self.model_provider = "Anthropic"
+                    elif self.model_name.startswith("ollama/"): self.model_provider = "Ollama (Local)"
+                    else: self.model_provider = new_provider_name
+                    
+                    # Optionally, reset conversation history or parts of it if model change is drastic
+                    # For now, just inform the user and update client attributes.
+                    # self.conversation_history = [] # Example: Clear history
+                    # if self.system_instruction_content:
+                    #    self.conversation_history.append({"role": "system", "content": self.system_instruction_content})
+                    
+                    return f"{message}\nClient updated to use new model: {self.model_name} from {self.model_provider}."
+                else:
+                    return message # e.g., "Model change cancelled by user."
+            else:
+                return "Error: /change_model command does not take any arguments. Run it as just /change_model."
+
         # Handle initialization attempts first
         if base_command_lower == "change_database":
             raw_conn_str = argument_text
@@ -548,8 +542,10 @@ class LiteLLMMcpClient:
                             display_message_parts.append(f"  Q: \"{ex['nlq']}\"")
                             display_message_parts.append(f"  A: ```sql\n{ex['sql']}\n```")
                         base_message_to_user += "\n" + "\n".join(display_message_parts)
+                    else:
+                        base_message_to_user += f"\n\n--- No similar approved examples found (Similarity >= {display_threshold_from_module}) ---"
                 except Exception as e_display_rag:
-                    print(f"Error retrieving/formatting display RAG examples: {e_display_rag}", file=sys.stderr)
+                    print(f"Error retrieving/formatting display RAG examples: {e_display_rag}", file=sys.stderr) # Keep error print on stderr
             # --- End Augment ---
             return base_message_to_user
 
@@ -854,7 +850,7 @@ class LiteLLMMcpClient:
             if not self.is_in_revision_mode or not self.current_revision_report_content or not self.current_revision_report_content.final_revised_sql_query:
                 return "Error: No active revision cycle or final revised SQL to approve. Use /revise first."
 
-            print("Finalizing revision and generating NLQ, please wait...")
+            # print("Finalizing revision and generating NLQ, please wait...") # User requested removal of such prints
             final_sql = self.current_revision_report_content.final_revised_sql_query
             
             nlq_gen_result = await revise_query_module.generate_nlq_for_revised_sql(
@@ -884,7 +880,7 @@ class LiteLLMMcpClient:
 
                     # --- Generate feedback report and insights ONLY IF feedback was used in revision ---
                     if self.feedback_used_in_current_revision_cycle and self.feedback_log_in_revision:
-                        user_msg_parts.append("Processing feedback from revision cycle for report and insights...")
+                        # user_msg_parts.append("Processing feedback from revision cycle for report and insights...") # Removed
                         
                         report_feedback_iterations = [
                             FeedbackIteration(
@@ -980,7 +976,7 @@ class LiteLLMMcpClient:
                             user_msg_parts.append("Warning: Could not generate the full feedback report for the revision cycle (LLM analysis failed).")
                     elif not self.feedback_used_in_current_revision_cycle and self.current_revision_report_content:
                         # Generate insights directly from revision history
-                        user_msg_parts.append("Processing revision history for insights...")
+                        # user_msg_parts.append("Processing revision history for insights...") # Removed
                         try:
                             insights_from_revision_success = await revision_insights_module.generate_insights_from_revision_history(
                                 self,
@@ -1035,20 +1031,23 @@ class LiteLLMMcpClient:
             "    - Iteratively revises the last SQL query.\n"
             "  /approve_revision\n"
             "    - Approves the final SQL from a /revise cycle. Generates an NLQ and saves the pair. Insights are generated based on revision history.\n"
+            "  /change_model\n"
+            "    - Interactively changes the LLM provider, API credentials, and model ID.\n"
             "  /list_commands, /help, /?\n"
             "    - Shows this list of available commands.\n"
             "  Or, type a natural language question without a '/' prefix to ask about the current database schema or insights."
         )
 
-    async def chat_loop(self):
+    async def chat_loop(self, initial_setup_done: bool): # Added initial_setup_done flag
         print(f"\n{Fore.MAGENTA}PostgreSQL Co-Pilot Started!{Style.RESET_ALL}")
         print(f"{Fore.BLUE}Using LiteLLM with model: {Style.BRIGHT}{self.model_name}{Style.RESET_ALL}")
         print(f"{Fore.BLUE}Model provider: {Style.BRIGHT}{self.model_provider}{Style.RESET_ALL}")
         
-        is_first_run = self._check_and_set_first_run()
-        if is_first_run:
-            print(f"\n{Fore.YELLOW}Welcome! It looks like this is your first time running the Co-Pilot.{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}Please ensure you have run 'python prerequisites.py' to set up necessary folders and get API key instructions.{Style.RESET_ALL}")
+        if initial_setup_done: # If config_manager ran initial_setup
+            print(f"\n{Fore.YELLOW}Welcome! Initial configuration complete.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Your settings (LLM provider, API key, data paths) have been saved to: {config_manager.get_config_file_path()}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Memory directory: {self.app_config.get('memory_base_dir')}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}NL2SQL directory: {self.app_config.get('nl2sql_base_dir')}{Style.RESET_ALL}")
             print(self._get_commands_help_text())
         else:
             print(f"\n{Fore.CYAN}Type '/help', '/?' or '/list_commands' to see available commands.{Style.RESET_ALL}")
@@ -1092,46 +1091,41 @@ async def main():
     # litellm.telemetry = False # Disable LiteLLM telemetry if desired
     colorama_init(autoreset=True) # Initialize Colorama
 
+    # --- Load Application Configuration ---
+    # This will trigger initial_setup if config file doesn't exist
+    initial_config_load = config_manager.load_config() # Try loading first
+    app_config = config_manager.get_app_config()
+    initial_setup_was_performed = not initial_config_load # True if initial_setup ran
+
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding='utf-8')
         sys.stdin.reconfigure(encoding='utf-8')
 
-    if len(sys.argv) < 2:
-        print("Usage: python postgres_copilot_chat.py <path_to_mcp_server_script.py>", file=sys.stderr)
-        print("Example: python postgres_copilot_chat.py ./postgresql_server.py", file=sys.stderr)
-        sys.exit(1)
-    
-    mcp_server_script_arg = sys.argv[1]
-    # If mcp_server_script_arg is relative, it's relative to CWD.
-    # If this script (postgres_copilot_chat.py) is in db-copilot, and server is also in db-copilot,
-    # and user runs from parent dir: python db-copilot/postgres_copilot_chat.py db-copilot/postgresql_server.py
-    # then sys.argv[1] will be "db-copilot/postgresql_server.py".
-    # If user runs from db-copilot dir: python postgres_copilot_chat.py postgresql_server.py
-    # then sys.argv[1] will be "postgresql_server.py".
-    # The connect_to_mcp_server method now makes server_script_path absolute relative to *this* script's dir if it's relative.
-    
-    mcp_server_script = mcp_server_script_arg # Use the argument directly as connect_to_mcp_server will resolve it
+    # Determine the path to postgresql_server.py
+    # It's assumed to be in the same directory as this chat script.
+    try:
+        script_dir = Path(__file__).resolve().parent
+        mcp_server_script = script_dir / "postgresql_server.py"
 
-    if not os.path.exists(mcp_server_script):
-        # Try resolving relative to this script's directory if not found from CWD
-        # This helps if the user provides a path relative to the script itself,
-        # e.g. running `python main_script.py ../servers/mcp_server.py` from a `src` dir.
-        # However, for `python db-copilot/pg_chat.py db-copilot/pg_server.py` from parent,
-        # `mcp_server_script_arg` is already correct relative to CWD.
-        # The logic in `connect_to_mcp_server` handles making it absolute if it's relative *to the script's dir*.
-        # So, if it's not found as is, it might be an incorrect path.
-        # Let's check if it's found relative to the script dir if not absolute.
-        if not os.path.isabs(mcp_server_script_arg):
-            path_relative_to_script = os.path.join(os.path.dirname(__file__), mcp_server_script_arg)
-            if os.path.exists(path_relative_to_script):
-                mcp_server_script = path_relative_to_script
-            else:
-                print(f"Error: MCP server script not found at '{mcp_server_script_arg}' (from CWD) or '{path_relative_to_script}' (relative to script).", file=sys.stderr)
-                sys.exit(1)
-        else: # Absolute path given but not found
-            print(f"Error: MCP server script not found at absolute path '{mcp_server_script_arg}'", file=sys.stderr)
+        if not mcp_server_script.exists():
+            print(f"{Fore.RED}Error: MCP server script 'postgresql_server.py' not found in the expected location: {mcp_server_script}{Style.RESET_ALL}", file=sys.stderr)
+            # Attempt to find it if it was packaged differently (e.g. in a 'bin' or 'scripts' dir by pipx)
+            # This is a fallback, primary assumption is it's co-located.
+            # For pipx, scripts are often in a 'bin' (Linux/macOS) or 'Scripts' (Windows) dir
+            # relative to the package's venv. Finding this robustly can be complex.
+            # A simpler approach for now is to assume it's co-located as part of the package structure.
+            # If `pipx run` is used, __file__ should point within the temporary venv.
+            
+            # Check if `postgresql_server.py` is in sys.path (might indicate it's findable by Python)
+            # Or if it's discoverable via `importlib.resources` if packaged correctly.
+            # For now, stick to the co-location assumption for simplicity as it's a .py file.
             sys.exit(1)
+        
+        print(f"{Fore.BLUE}Located MCP server script at: {mcp_server_script}{Style.RESET_ALL}")
 
+    except Exception as e:
+        print(f"{Fore.RED}Error determining MCP server script path: {e}{Style.RESET_ALL}", file=sys.stderr)
+        sys.exit(1)
 
     custom_system_prompt = (
         "You are an expert PostgreSQL assistant. You will help users by generating SQL queries, "
@@ -1147,7 +1141,7 @@ async def main():
     # Or "gpt-3.5-turbo" if OPENAI_API_KEY is set.
     # Defaulting to a common Gemini model that LiteLLM supports.
     # Model name is now read from .env inside LiteLLMMcpClient constructor
-    client = LiteLLMMcpClient(system_instruction=custom_system_prompt)
+    client = LiteLLMMcpClient(app_config=app_config, system_instruction=custom_system_prompt) # Pass app_config
 
     # The vector_store_module now uses its own hardcoded constants for thresholds.
     # No explicit call to configure_thresholds is needed here anymore.
@@ -1160,12 +1154,16 @@ async def main():
         
         # With LiteLLM, there's no explicit chat object to check like `client.chat`.
         # We assume connection is successful if connect_to_mcp_server doesn't exit.
-        await client.chat_loop()
+        await client.chat_loop(initial_setup_done=initial_setup_was_performed) # Pass flag
 
         # Save conversation history (now client.conversation_history)
         if client.conversation_history:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            history_file_path = os.path.join(memory_module.CONVERSATION_HISTORY_DIR, f"conversation_litellm_{timestamp}.json")
+            # Use configured memory path
+            conversation_history_base_dir = Path(app_config.get("memory_base_dir", memory_module.get_default_memory_base_path_text_for_chat_module())) / "conversation_history"
+            conversation_history_base_dir.mkdir(parents=True, exist_ok=True)
+            history_file_path = conversation_history_base_dir / f"conversation_litellm_{timestamp}.json"
+            
             print(f"\n{Fore.CYAN}Saving conversation history to: {history_file_path}{Style.RESET_ALL}")
             try:
                 with open(history_file_path, "w", encoding="utf-8") as f:
@@ -1186,5 +1184,19 @@ async def main():
     finally:
         await client.cleanup()
 
+def entry_point_main():
+    """Synchronous wrapper for the main async function, for console script."""
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nApplication interrupted. Exiting...")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
+        # Consider logging the full traceback here for debugging
+        # import traceback
+        # traceback.print_exc()
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    entry_point_main()

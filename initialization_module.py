@@ -5,10 +5,10 @@ from typing import Tuple, Optional, Any, TYPE_CHECKING, Dict
 # from .pydantic_models import InitializationResponse # If you define a Pydantic model for the response
 
 # Import memory_module
-import memory_module
+from . import memory_module # Changed to relative
 
 if TYPE_CHECKING:
-    from postgres_copilot_chat import LiteLLMMcpClient # To avoid circular import
+    from .postgres_copilot_chat import LiteLLMMcpClient # Changed to relative
 
 async def perform_initialization(
     mcp_client_session_handler: 'LiteLLMMcpClient', # Type hint with quotes for forward reference

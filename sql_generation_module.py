@@ -3,14 +3,14 @@ import sys # For stderr
 from typing import TYPE_CHECKING, Dict, Any, Optional
 
 from pydantic import ValidationError
-from pydantic_models import SQLGenerationResponse 
+from .pydantic_models import SQLGenerationResponse # Changed to relative
 
 # Import for RAG
-import vector_store_module 
+from . import vector_store_module # Changed to relative
 
 if TYPE_CHECKING:
     # postgres_copilot_chat now defines LiteLLMMcpClient
-    from postgres_copilot_chat import LiteLLMMcpClient 
+    from .postgres_copilot_chat import LiteLLMMcpClient # Changed to relative
 
 MAX_SQL_GEN_RETRIES = 4 # Number of retries for the LLM to fix its own JSON output or SQL errors (Total 5 attempts)
 MAX_SQL_EXECUTION_RETRIES = 5 # Number of retries for the LLM to fix SQL execution errors

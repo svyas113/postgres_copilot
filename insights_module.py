@@ -3,8 +3,8 @@ from typing import Optional, Any
 from pydantic import ValidationError
 
 # Assuming pydantic_models.py and memory_module.py are accessible
-from pydantic_models import InsightsExtractionModel, FeedbackReportContentModel # Feedback for type hint if needed
-import memory_module # To call save_or_update_insights and read_insights_file
+from .pydantic_models import InsightsExtractionModel, FeedbackReportContentModel # Changed to relative
+from . import memory_module # Changed to relative
 
 # This module will interact with the LLM (via postgres_copilot_chat.py's _send_message_to_llm method)
 # So, the main function here will be called from postgres_copilot_chat.py,
