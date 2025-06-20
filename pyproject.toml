@@ -13,6 +13,7 @@ dependencies = [
     "psycopg2-binary>=2.9.10", # Changed to psycopg2-binary
     "python-dotenv>=1.1.0",
     "lancedb>=0.6.2", # Added LanceDB
+    "colorama>=0.4.6", # Added for colored terminal output
     "sentence-transformers>=2.7.0", # Added Sentence Transformers
     "pandas>=2.0.0", # Added pandas for LanceDB .to_df()
     # pyarrow is a common dependency for lancedb, often installed automatically
