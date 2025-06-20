@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 import copy
 
 from pydantic import ValidationError
-import memory_module
-from pydantic_models import InsightsExtractionModel, RevisionReportContentModel
+from . import memory_module # Changed to relative
+from .pydantic_models import InsightsExtractionModel, RevisionReportContentModel # Changed to relative
 
 if TYPE_CHECKING:
-    from postgres_copilot_chat import LiteLLMMcpClient
+    from .postgres_copilot_chat import LiteLLMMcpClient # Changed to relative
 
 # Define a constant for the maximum number of retries for LLM calls
 MAX_LLM_RETRIES = 2
@@ -23,7 +23,8 @@ async def generate_insights_from_revision_history(
     Generates insights by prompting an LLM to analyze a query revision history,
     and merges them with existing insights for the database.
     """
-    print(f"Generating insights from revision history for '{db_name_identifier}'...")
+    # All top-level prints in this function are being removed as per user feedback.
+    # Error prints to sys.stderr will be retained for actual issues.
 
     # 1. Prepare the revision history content for the LLM
     revision_summary_parts = [
@@ -104,7 +105,6 @@ async def generate_insights_from_revision_history(
             # Validate against the full model, but we only prompted for a subset.
             # The model should handle default empty values for fields not prompted.
             extracted_insights_model = InsightsExtractionModel.model_validate_json(response_text.strip())
-            print("Successfully extracted initial insights from revision history.")
             break
         except (ValidationError, json.JSONDecodeError) as e:
             print(f"Error validating/parsing insights from LLM (attempt {attempt + 1}): {e}", file=sys.stderr)
@@ -132,12 +132,10 @@ async def generate_insights_from_revision_history(
             # memory_module.save_or_update_insights now saves the full model as JSON string.
             existing_insights_data = json.loads(existing_insights_str)
             existing_insights_model = InsightsExtractionModel.model_validate(existing_insights_data)
-            print("Loaded existing insights for merging.")
         except (json.JSONDecodeError, ValidationError) as e:
-            print(f"Warning: Could not parse existing insights file for '{db_name_identifier}': {e}. Starting with new insights only.", file=sys.stderr)
+            print(f"Warning: Could not parse existing insights file for '{db_name_identifier}': {e}. Starting with new insights only.", file=sys.stderr) # Keep warning
             existing_insights_model = InsightsExtractionModel() # Start fresh
     else:
-        print(f"No existing insights file found for '{db_name_identifier}'. Creating new one.")
         existing_insights_model = InsightsExtractionModel() # Create a new empty model
 
     # 4. Merge new insights with existing ones (LLM-assisted or rule-based)
@@ -219,7 +217,6 @@ async def generate_insights_from_revision_history(
     # 5. Save the final merged insights
     try:
         memory_module.save_or_update_insights(final_insights_model, db_name_identifier)
-        print(f"Successfully updated and saved insights for '{db_name_identifier}' based on revision history.")
         return True
     except Exception as e:
         print(f"Error saving merged insights for '{db_name_identifier}': {e}", file=sys.stderr)

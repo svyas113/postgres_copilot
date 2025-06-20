@@ -3,16 +3,16 @@ from typing import TYPE_CHECKING, Dict, Any, Optional, List
 from pydantic import BaseModel # Keep for the classes if they are not imported from pydantic_models directly in this file for some reason.
                                # However, the goal is to import them.
 
-from pydantic_models import (
+from .pydantic_models import ( # Changed to relative
     SQLRevisionResponse, 
     RevisionIteration, 
     NLQGenerationForRevisedSQLResponse,
     RevisionReportContentModel
 )
-import memory_module # Will be needed for saving NLQ-SQL pair
+# import memory_module # Removed as it's not used directly in this module
 
 if TYPE_CHECKING:
-    from postgres_copilot_chat import LiteLLMMcpClient
+    from .postgres_copilot_chat import LiteLLMMcpClient # Changed to relative
 
 
 MAX_REVISE_SQL_RETRIES = 5

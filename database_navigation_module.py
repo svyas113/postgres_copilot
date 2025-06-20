@@ -2,11 +2,11 @@ import json
 import re # Added for extracting table name
 from typing import TYPE_CHECKING, Dict, Any, Optional
 
-from pydantic_models import SQLGenerationResponse # Re-using for simple SQL execution if LLM generates it
+from .pydantic_models import SQLGenerationResponse # Changed to relative
 from pydantic import BaseModel, Field, ValidationError
 
 if TYPE_CHECKING:
-    from postgres_copilot_chat import LiteLLMMcpClient # To avoid circular import
+    from .postgres_copilot_chat import LiteLLMMcpClient # Changed to relative
 
 # Pydantic model for LLM's decision on how to handle navigation
 class NavigationAction(BaseModel):
