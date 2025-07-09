@@ -1,6 +1,36 @@
 # PostgreSQL Co-Pilot
 
-PostgreSQL Co-Pilot is an intelligent assistant designed to help users interact with PostgreSQL databases. It leverages Google's Gemini generative AI models to understand natural language queries, generate SQL, process user feedback, and extract valuable insights about database schemas and query patterns. The Co-Pilot aims to streamline database interaction, making it more intuitive and efficient, especially for users who may not be SQL experts.
+## Quick Start
+
+For a fast setup without cloning the repository, you can download the necessary files and run the application using Docker Compose.
+
+1.  **Download the required files:**
+
+    ```bash
+    # Download the run script
+    curl -L "https://gist.githubusercontent.com/svyas113/75bdc62d82b00be29a7f6f3a291ab0b4/raw/run.sh" -o run.sh
+
+    # Download the Docker Compose file
+    curl -L "https://gist.githubusercontent.com/svyas113/75bdc62d82b00be29a7f6f3a291ab0b4/raw/docker-compose.yml" -o docker-compose.yml
+    ```
+
+2.  **Make the script executable:**
+
+    ```bash
+    chmod +x ./run.sh
+    ```
+
+3.  **Run the application:**
+
+    ```bash
+    ./run.sh
+    ```
+
+This will use Docker Compose to build the image (if not already present) and launch the PostgreSQL Co-Pilot. The first time you run it, it will guide you through the necessary configuration.
+
+---
+
+PostgreSQL Co-Pilot is an intelligent assistant designed to help users interact with PostgreSQL databases. It leverages various Large Language Models (LLMs) via LiteLLM (including providers like OpenAI, Google Gemini, Anthropic, AWS Bedrock, DeepSeek, and OpenRouter) to understand natural language queries, generate SQL, process user feedback, and extract valuable insights about database schemas and query patterns. The Co-Pilot aims to streamline database interaction, making it more intuitive and efficient, especially for users who may not be SQL experts.
 
 ## Features
 
@@ -14,16 +44,27 @@ PostgreSQL Co-Pilot is an intelligent assistant designed to help users interact 
 
 ## Directory Structure
 
-The project uses the following directory structure:
+The application uses user-configurable paths for storing its data. During the first-run setup (or via `config.json`), you'll define:
 
-```
-memory/
-├── conversation_history/
-├── feedback/
-├── insights/
-└── NL2SQL/
-```
-(Note: The `passwords/` directory exists and is created by `prerequisites.py`. Inside the `.env` file located in the `passwords/` directory, the user has to enter their model ID and credentials to use that particular model. We use litellm now, so you can use any model that is compatible with litellm, but for now it is locked for AWS Bedrock, Claude, OpenAI, Google Generative AI, and Azure Cloud.)
+1.  **Memory Base Directory** (e.g., `~/.local/share/PostgresCopilotTeam/PostgresCopilot/memory/`):
+    This directory houses:
+    ```
+    memory_base_dir/
+    ├── conversation_history/  # Stores chat logs
+    ├── feedback/              # Stores detailed feedback reports (Markdown)
+    ├── insights/              # Stores cumulative insights per database (Markdown)
+    ├── schema/                # Stores cached database schemas and sample data (JSON)
+    └── lancedb_stores/        # Base directory for LanceDB vector stores (one per database)
+    ```
+
+2.  **Approved Queries Directory** (e.g., `~/.local/share/PostgresCopilotTeam/PostgresCopilot/Approved_NL2SQL_Pairs/`):
+    This directory stores the approved Natural Language Question - SQL query pairs as JSON files:
+    ```
+    approved_queries_dir/
+    └── {database_identifier}_nl2sql_pairs.json
+    ```
+
+(Note: LLM provider choice, API keys/credentials, and model ID, along with these paths, are configured interactively during the first run of the application or via the `/change_model` command for LLM settings. All configurations are stored in a `config.json` file in a user-specific configuration directory like `~/.config/PostgresCopilot/` on Linux or `AppData/Roaming/PostgresCopilotTeam/PostgresCopilot/` on Windows.)
 
 ## Modules
 
@@ -34,9 +75,10 @@ memory/
 *   **`insights_module.py`**: Processes approved feedback reports to extract and update cumulative insights in `summarized_insights.md`.
 *   **`database_navigation_module.py`**: Allows users to ask questions about the connected database structure using the cached schema and insights.
 *   **`pydantic_models.py`**: Defines Pydantic models for structured data handling, such as feedback reports and insights.
-*   **`postgresql_server.py`**: (Assumed) The MCP server script that directly interacts with the PostgreSQL database to execute queries, fetch schema, etc. This is passed as an argument to `postgres_copilot_chat.py`.
-*   **`.env`**: Stores environment variables, primarily the `GOOGLE_API_KEY`, located in the `db-copilot/` root directory.
-*   **`pyproject.toml` & `uv.lock`**: Define project dependencies and manage the Python environment (likely using `uv` or a similar tool).
+*   **`postgresql_server.py`**: The MCP server script that directly interacts with the PostgreSQL database. It is automatically started and managed by the main `postgres-copilot` application.
+*   **`model_change_module.py`**: Handles the `/change_model` command, allowing users to interactively update their LLM provider and settings.
+*   **`config_manager.py`**: Manages user-specific configurations, including LLM settings and data storage paths, through a `config.json` file. Handles the interactive first-run setup.
+*   **`pyproject.toml` & `uv.lock`**: Define project dependencies and manage the Python environment.
 
 ## Workflow
 
@@ -67,51 +109,46 @@ memory/
 
 ## Setup and Installation
 
-1.  **Clone the repository.**
-2.  **Create a virtual environment and install dependencies:**
-    *   It's recommended to use `uv` (if `uv.lock` and `pyproject.toml` are configured for it) or `pip`.
-    *   Example with pip (refer to `pyproject.toml` for actual dependencies):
+The PostgreSQL Co-Pilot is designed to be installed using `pipx` for a clean, isolated environment.
+
+1.  **Prerequisites:**
+    *   Python 3.10+
+    *   `pipx` (Install it via `python -m pip install --user pipx` and then `python -m pipx ensurepath`)
+    *   An accessible PostgreSQL database.
+
+2.  **Build the Package (if installing from local source):**
+    *   Navigate to the `postgres_copilot` directory (where `pyproject.toml` is located).
+    *   Run: `python -m build`
+    *   This will create a `.whl` file in the `postgres_copilot/dist/` directory.
+
+3.  **Install using `pipx`:**
+    *   **From local wheel file:**
         ```bash
-        python -m venv .venv
-        source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-        pip install google-generativeai python-dotenv pydantic mcp # Add other specific dependencies
+        pipx install --force path/to/postgres_copilot/dist/db_copilot-0.1.0-py3-none-any.whl
         ```
-3.  **Set up Environment Variables:**
-    *   Ensure a `.env` file exists in the `db-copilot/` root directory.
-    *   The application looks for `GOOGLE_API_KEY` in this file (`db-copilot/.env`).
-    *   Add your Google API key to `db-copilot/.env`:
+        (Replace `path/to/` with the actual path, and ensure the version number matches the built wheel.)
+    *   **From PyPI (once published):**
+        ```bash
+        pipx install db-copilot 
         ```
-        # In db-copilot/.env
-        GOOGLE_API_KEY="YOUR_GOOGLE_API_KEY_HERE"
-        ```
-    *   **Important:** Ensure you replace `"YOUR_GOOGLE_API_KEY_HERE"` with your actual Google Gemini API key. The file `db-copilot/passwords/.env` is not used by `postgres_copilot_chat.py` for loading this specific key.
-4.  **Ensure PostgreSQL Server is Running:** The Co-Pilot connects to an existing PostgreSQL database.
-5.  **MCP Server:** Make sure the `postgresql_server.py` (or equivalent MCP server script for PostgreSQL interaction) is available and executable.
 
-To install and run the system:
-
-Clone the repo,
-
-If you have uv installed which is a python dependency manager you just have to run the uv sync command if you don't you have to install it and run uv sync (That will create a python virtual environment and install all the dependencies in there)
-
-Once done just run prerequisites.py that will install all the necessary folders to run the postgres_copilot_chat.py which is the main chat bot and once done
-
-Run python postgres_copilot_chat.py postgresql_server.py
-
-That will start the chat bot
+4.  **First-Run Configuration:**
+    *   The first time you run `postgres-copilot` after installation, it will guide you through an interactive setup process.
+    *   You will be asked to:
+        *   Choose your preferred LLM provider (e.g., OpenAI, Google Gemini, Anthropic, AWS Bedrock, DeepSeek, OpenRouter).
+        *   Enter the API key and any other required credentials for your chosen LLM.
+        *   Specify the Model ID for the LLM.
+        *   Confirm or change the default paths for storing:
+            *   `memory` data (insights, schema, history, feedback, and vector stores).
+            *   `Approved Queries` (NLQ-SQL JSON pair files).
+    *   These settings are saved in a `config.json` file in your user-specific configuration directory.
 
 ## Usage
 
-Run the main chat interface from the `db-copilot` directory:
+After installation, run the application by typing:
 
 ```bash
-python postgres_copilot_chat.py <path_to_mcp_server_script.py>
-```
-
-Example:
-
-```bash
-python postgres_copilot_chat.py ./postgresql_server.py
+postgres-copilot
 ```
 
 Once started, you can interact with the Co-Pilot using the following commands:
@@ -128,20 +165,35 @@ Once started, you can interact with the Co-Pilot using the following commands:
     (e.g., `/feedback: The date format for hiring is YYYY-MM-DD, not MM/DD/YYYY`)
 *   **Approve SQL:**
     `/approved`
-    (Saves the feedback report and updates insights)
+    (Saves the feedback report, updates insights, and stores the NLQ-SQL pair)
+*   **Revise SQL:**
+    `/revise: Your instructions to modify the last SQL query`
+*   **Approve Revision:**
+    `/approve_revision`
+    (Approves the final revised SQL, generates an NLQ for it, saves the pair, and updates insights)
+*   **Change LLM Model:**
+    `/change_model`
+    (Allows you to interactively change the LLM provider, credentials, and model ID)
 *   **Navigate/Ask Questions:**
     Type your question directly without a command prefix to ask about the database schema or general information based on loaded insights.
     (e.g., `What tables are related to products?`)
+*   **List Commands / Help:**
+    `/help` or `/list_commands` or `/?`
 *   **Quit:**
     `quit`
 
 ## Dependencies
 
-*   `google-generativeai`: For interacting with Google's Gemini AI models.
-*   `python-dotenv`: For managing environment variables (like API keys).
-*   `pydantic`: For data validation and settings management using Python type annotations.
-*   `mcp` (Model Context Protocol): For communication between the Co-Pilot client and the database interaction server.
-*   (Other dependencies as listed in `pyproject.toml`)
+Key dependencies include:
+*   `litellm`: For interacting with various Large Language Models.
+*   `pipx`: Recommended for installation.
+*   `appdirs`: For determining user-specific configuration/data directories.
+*   `lancedb`: For vector storage and retrieval.
+*   `sentence-transformers`: For generating embeddings.
+*   `psycopg2`: PostgreSQL adapter for Python.
+*   `pydantic`: For data validation and settings management.
+*   `mcp` (Model Context Protocol): For communication with the internal PostgreSQL MCP server.
+*   (See `pyproject.toml` for the full list)
 
 ## Future Enhancements
 
