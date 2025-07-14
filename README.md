@@ -11,7 +11,7 @@ For a fast setup without cloning the repository, you can download the necessary 
     curl -L "https://gist.githubusercontent.com/svyas113/75bdc62d82b00be29a7f6f3a291ab0b4/raw/run.sh" -o run.sh
 
     # Download the Docker Compose file
-    curl -L "https://gist.githubusercontent.com/svyas113/75bdc62d82b00be29a7f6f3a291ab0b4/raw/docker-compose.yml" -o docker-compose.yml
+    curl -L "https://gist.githubusercontent.com/svyas113/75bdc62d82b00be29a7f6f3a291ab0b4/raw/client-docker-compose.yml" -o docker-compose.yml
     ```
 
 2.  **Make the script executable:**
