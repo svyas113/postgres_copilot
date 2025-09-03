@@ -1,1 +1,2 @@
-# This file makes the 'db_copilot' directory a Python package.
+# This file makes the postgres_copilot2 directory a proper Python package
+# This helps with imports across the project
