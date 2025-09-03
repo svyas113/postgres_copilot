@@ -58,3 +58,8 @@ passwords/
 
 # Sensitive files
 fastworkflow.passwords.env
+
+# Large model files
+___command_info/global/largemodel.pth/model.safetensors
+___command_info/global/tinymodel.pth/model.safetensors
+*.safetensors
