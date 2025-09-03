@@ -1,0 +1,305 @@
+{
+    "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+    "map_command_2_metadata": {
+        "feedback_sql": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/feedback_sql.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": "Signature.Input",
+            "response_generation_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/feedback_sql.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "generate_sql": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/generate_sql.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": "Signature.Input",
+            "response_generation_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/generate_sql.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "schema_navigation": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/schema_navigation.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": "Signature.Input",
+            "response_generation_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/schema_navigation.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "approve_sql": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/approve_sql.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": "Signature.Input",
+            "response_generation_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/approve_sql.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "initialize_db": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/initialize_db.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": "Signature.Input",
+            "response_generation_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/initialize_db.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "send_message": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/send_message.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": "Signature.Input",
+            "response_generation_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/send_message.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "initialize": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/initialize.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": "Signature.Input",
+            "response_generation_module_path": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/initialize.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "IntentDetection/go_up": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/IntentDetection/go_up.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": null,
+            "response_generation_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/IntentDetection/go_up.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "IntentDetection/reset_context": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/IntentDetection/reset_context.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": null,
+            "response_generation_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/IntentDetection/reset_context.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "IntentDetection/what_can_i_do": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/IntentDetection/what_can_i_do.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": null,
+            "response_generation_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/IntentDetection/what_can_i_do.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "IntentDetection/what_is_current_context": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/IntentDetection/what_is_current_context.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": null,
+            "response_generation_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/IntentDetection/what_is_current_context.py",
+            "response_generation_class_name": "ResponseGenerator"
+        },
+        "wildcard": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction",
+            "parameter_extraction_signature_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/wildcard.py",
+            "input_for_param_extraction_class": "Signature",
+            "command_parameters_class": null,
+            "response_generation_module_path": "/home/shivam/fastworkflow/fast/lib/python3.11/site-packages/fastworkflow/_workflows/command_metadata_extraction/_commands/wildcard.py",
+            "response_generation_class_name": "ResponseGenerator"
+        }
+    },
+    "map_command_2_utterance_metadata": {
+        "feedback_sql": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "plain_utterances": [
+                "feedback on the sql",
+                "revise the query",
+                "update the sql",
+                "change the query",
+                "modify the sql",
+                "improve the query",
+                "fix the sql",
+                "the query should",
+                "the sql should",
+                "revise this query to use Sales instead of Pricing in the where clause",
+                "update the sql to join with the Customers table",
+                "change the query to filter by department name",
+                "modify the sql to include employee hire date",
+                "the query should order results by last name",
+                "add a limit of 10 to the query",
+                "filter the results to only show active employees",
+                "group the results by department instead of location",
+                "exclude terminated employees from the query",
+                "add a where clause to filter by date",
+                "change the select columns to include email address",
+                "the query needs to calculate the average salary",
+                "revise the query to show only Houston factory employees",
+                "modify the sql to use a left join instead",
+                "update the query to use the correct table name",
+                "the sql should use a subquery for the department filter",
+                "change the order by clause to sort by descending order",
+                "revise the query to use a case statement for the status",
+                "update the sql to include a having clause",
+                "modify the query to use a different join condition",
+                "add to the query",
+                "include in the sql",
+                "exclude from the query",
+                "sort the results by",
+                "filter the results by",
+                "group the results by",
+                "join with another table",
+                "limit the results",
+                "the query needs to",
+                "the sql needs to",
+                "can you change the query to",
+                "please update the sql to",
+                "revise the query to show",
+                "modify the sql to include",
+                "change the query to exclude",
+                "update the sql to sort by",
+                "revise the query to filter by",
+                "modify the sql to group by",
+                "change the query to join with",
+                "update the sql to limit",
+                "revise the query to calculate"
+            ],
+            "template_utterances": [],
+            "generated_utterances_module_filepath": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/feedback_sql.py",
+            "generated_utterances_func_name": "Signature.generate_utterances"
+        },
+        "generate_sql": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "plain_utterances": [
+                "Generate SQL to find all users who signed up last month",
+                "Convert this question to SQL: how many orders were placed yesterday?",
+                "Write a SQL query to show the top selling products",
+                "Create a SQL query that lists all employees in the marketing department",
+                "Turn this into SQL: which customers have spent more than $1000?",
+                "Make an SQL query to find inactive accounts",
+                "SQL for finding duplicate records in the customers table",
+                "Generate a query to show sales by region",
+                "Write SQL to join orders and customers tables",
+                "Create a query that shows monthly revenue",
+                "Generate sql to list employees",
+                "List employees",
+                "Show me employees",
+                "Find employees",
+                "Get employees",
+                "Query employees",
+                "SQL for employees",
+                "Generate SQL to list 25 employees",
+                "List 25 employees",
+                "Show me 25 employees",
+                "Find 25 employees",
+                "Get 25 employees",
+                "Query 25 employees",
+                "SQL for 25 employees"
+            ],
+            "template_utterances": [],
+            "generated_utterances_module_filepath": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/generate_sql.py",
+            "generated_utterances_func_name": "Signature.generate_utterances"
+        },
+        "schema_navigation": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "plain_utterances": [
+                "Tell me about this database",
+                "What tables are in this database?",
+                "Explain the schema of this database",
+                "What does the users table contain?",
+                "Describe the structure of the orders table",
+                "What are the relationships between tables?",
+                "How are customers and orders related?",
+                "What columns are in the products table?",
+                "Summarize this database schema for me",
+                "What primary keys are used in this database?"
+            ],
+            "template_utterances": [],
+            "generated_utterances_module_filepath": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/schema_navigation.py",
+            "generated_utterances_func_name": "Signature.generate_utterances"
+        },
+        "approve_sql": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "plain_utterances": [
+                "approve this sql",
+                "approve the sql",
+                "approve the query",
+                "this sql looks good",
+                "the query is correct",
+                "save this sql",
+                "save the query",
+                "this query is good",
+                "the sql is correct",
+                "approve",
+                "looks good",
+                "that's correct",
+                "that is right",
+                "save this",
+                "this is what I wanted",
+                "perfect query",
+                "excellent sql",
+                "approve and save",
+                "save and approve",
+                "this works",
+                "the query works",
+                "the sql works",
+                "approve and generate insights",
+                "save this query and generate insights",
+                "approve and save feedback",
+                "save this for future reference",
+                "add this to approved queries",
+                "this is the right query",
+                "this query is what I need",
+                "approve this and save it"
+            ],
+            "template_utterances": [],
+            "generated_utterances_module_filepath": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/approve_sql.py",
+            "generated_utterances_func_name": "Signature.generate_utterances"
+        },
+        "initialize_db": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "plain_utterances": [
+                "Initialize",
+                "Initialize database",
+                "Initialize postgres",
+                "Connect to database",
+                "Setup database connection",
+                "Connect to postgres",
+                "Setup postgres",
+                "Start database",
+                "Connect to the database"
+            ],
+            "template_utterances": [],
+            "generated_utterances_module_filepath": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/initialize_db.py",
+            "generated_utterances_func_name": "Signature.generate_utterances"
+        },
+        "send_message": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "plain_utterances": [
+                "Tell john@fastworkflow.ai that the build tool needs improvement"
+            ],
+            "template_utterances": [],
+            "generated_utterances_module_filepath": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/send_message.py",
+            "generated_utterances_func_name": "Signature.generate_utterances"
+        },
+        "initialize": {
+            "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+            "plain_utterances": [
+                "Connect to postgresql://user:password@localhost:5432/dbname",
+                "Initialize database postgresql://postgres:postgres@localhost:5432/postgres",
+                "Connect to PostgreSQL database at localhost:5432",
+                "Set up connection to my database",
+                "Initialize the database with connection string",
+                "Connect to my PostgreSQL server",
+                "Set up database connection",
+                "Initialize database with force regenerate",
+                "Connect and regenerate schema vectors",
+                "Initialize",
+                "Initialize database",
+                "Initialize postgres",
+                "Connect to database",
+                "Setup database connection"
+            ],
+            "template_utterances": [],
+            "generated_utterances_module_filepath": "/home/shivam/fastworkflow/postgres_copilot (new)/_commands/initialize.py",
+            "generated_utterances_func_name": "Signature.generate_utterances"
+        }
+    },
+    "core_command_names": [
+        "IntentDetection/go_up",
+        "IntentDetection/reset_context",
+        "IntentDetection/what_can_i_do",
+        "IntentDetection/what_is_current_context",
+        "wildcard"
+    ],
+    "map_context_2_metadata": {}
+}

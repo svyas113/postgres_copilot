@@ -18,6 +18,18 @@
 # ...even if they are in subdirectories
 !*/
 
+# Allow specific directories and their contents
+!application/
+!application/**
+!_commands/
+!_commands/**
+!___workflow_contexts/
+!___workflow_contexts/**
+!___convo_info/
+!___convo_info/**
+!___command_info/
+!___command_info/**
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -43,3 +55,6 @@ venv.bak/
 # Custom additions
 memory/
 passwords/
+
+# Sensitive files
+fastworkflow.passwords.env

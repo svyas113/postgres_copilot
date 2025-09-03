@@ -1,0 +1,139 @@
+{
+    "workflow_folderpath": "/home/shivam/fastworkflow/postgres_copilot (new)",
+    "context_model": {
+        "_workflow_path": "/home/shivam/fastworkflow/postgres_copilot (new)",
+        "_command_contexts": {
+            "*": {
+                "/": [
+                    "approve_sql",
+                    "feedback_sql",
+                    "generate_sql",
+                    "initialize",
+                    "initialize_db",
+                    "schema_navigation",
+                    "send_message",
+                    "wildcard"
+                ]
+            },
+            "IntentDetection": {
+                "/": [
+                    "IntentDetection/go_up",
+                    "IntentDetection/reset_context",
+                    "IntentDetection/what_can_i_do",
+                    "IntentDetection/what_is_current_context"
+                ]
+            }
+        },
+        "_resolved_commands": {
+            "*": [
+                "approve_sql",
+                "feedback_sql",
+                "generate_sql",
+                "initialize",
+                "initialize_db",
+                "schema_navigation",
+                "send_message",
+                "wildcard"
+            ],
+            "IntentDetection": [
+                "IntentDetection/go_up",
+                "IntentDetection/reset_context",
+                "IntentDetection/what_can_i_do",
+                "IntentDetection/what_is_current_context"
+            ]
+        },
+        "_resolved_ancestors": {
+            "*": [],
+            "IntentDetection": []
+        }
+    },
+    "contexts": {
+        "*": [
+            "IntentDetection/go_up",
+            "IntentDetection/reset_context",
+            "IntentDetection/what_can_i_do",
+            "IntentDetection/what_is_current_context",
+            "approve_sql",
+            "feedback_sql",
+            "generate_sql",
+            "initialize",
+            "initialize_db",
+            "schema_navigation",
+            "send_message",
+            "wildcard"
+        ],
+        "IntentDetection": [
+            "IntentDetection/go_up",
+            "IntentDetection/reset_context",
+            "IntentDetection/what_can_i_do",
+            "IntentDetection/what_is_current_context",
+            "wildcard"
+        ]
+    },
+    "command_directory_map": {
+        "*": [
+            "feedback_sql",
+            "schema_navigation",
+            "IntentDetection/what_is_current_context",
+            "IntentDetection/go_up",
+            "initialize_db",
+            "IntentDetection/reset_context",
+            "initialize",
+            "send_message",
+            "IntentDetection/what_can_i_do",
+            "wildcard",
+            "approve_sql",
+            "generate_sql"
+        ],
+        "IntentDetection": [
+            "IntentDetection/what_is_current_context",
+            "IntentDetection/go_up",
+            "IntentDetection/reset_context",
+            "IntentDetection/what_can_i_do",
+            "wildcard"
+        ]
+    },
+    "routing_definition_map": {
+        "IntentDetection/go_up": [
+            "*",
+            "IntentDetection"
+        ],
+        "IntentDetection/reset_context": [
+            "*",
+            "IntentDetection"
+        ],
+        "IntentDetection/what_can_i_do": [
+            "*",
+            "IntentDetection"
+        ],
+        "IntentDetection/what_is_current_context": [
+            "*",
+            "IntentDetection"
+        ],
+        "approve_sql": [
+            "*"
+        ],
+        "feedback_sql": [
+            "*"
+        ],
+        "generate_sql": [
+            "*"
+        ],
+        "initialize": [
+            "*"
+        ],
+        "initialize_db": [
+            "*"
+        ],
+        "schema_navigation": [
+            "*"
+        ],
+        "send_message": [
+            "*"
+        ],
+        "wildcard": [
+            "*",
+            "IntentDetection"
+        ]
+    }
+}
