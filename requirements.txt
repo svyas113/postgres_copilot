@@ -1,6 +1,6 @@
 fastworkflow
 litellm
-psycopg2
+psycopg2-binary
 lancedb
 pyarrow
 sentence-transformers
