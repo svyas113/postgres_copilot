@@ -1,3 +1,4 @@
+fastworkflow
 litellm
 psycopg2
 lancedb
