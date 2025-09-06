@@ -1,0 +1,8 @@
+fastworkflow==2.13.4
+litellm
+psycopg2
+lancedb
+pyarrow
+sentence-transformers
+numpy
+python-dotenv
